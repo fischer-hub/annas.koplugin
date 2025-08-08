@@ -21,6 +21,8 @@ local Device = require("device")
 local MultiSearchDialog = require("zlibrary.multisearch_dialog")
 local DialogManager = require("zlibrary.dialog_manager")
 
+require('src.scraper')
+
 local Zlibrary = WidgetContainer:extend{
     name = T("Z-library"),
     is_doc_only = false,
@@ -66,7 +68,7 @@ function Zlibrary:addToMainMenu(menu_items)
     if not self.ui.view then
         menu_items.zlibrary_main = {
             sorting_hint = "search",
-            text = T("Z-library"),
+            text = T("Annas Search"),
             sub_item_table = {
                 {
                     text = T("Settings"),
@@ -91,42 +93,6 @@ function Zlibrary:addToMainMenu(menu_items)
                                         return true
                                     end
                                 )
-                            end,
-                            separator = true,
-                        },
-                        {
-                            text = T("Set email"),
-                            keep_menu_open = true,
-                            callback = function()
-                                Ui.showGenericInputDialog(
-                                    T("Set email"),
-                                    Config.SETTINGS_USERNAME_KEY,
-                                    Config.getSetting(Config.SETTINGS_USERNAME_KEY),
-                                    false
-                                )
-                            end,
-                        },
-                        {
-                            text = T("Set password"),
-                            keep_menu_open = true,
-                            callback = function()
-                                Ui.showGenericInputDialog(
-                                    T("Set password"),
-                                    Config.SETTINGS_PASSWORD_KEY,
-                                    Config.getSetting(Config.SETTINGS_PASSWORD_KEY),
-                                    true
-                                )
-                            end,
-                        },
-                        {
-                            text = T("Verify credentials"),
-                            keep_menu_open = true,
-                            callback = function()
-                                self:login(function(success)
-                                    if success then
-                                        Ui.showInfoMessage(T("Login successful!"))
-                                    end
-                                end)
                             end,
                             separator = true,
                         },
@@ -520,76 +486,29 @@ function Zlibrary:performSearch(query)
     end
 
     local function attemptSearch(retry_on_auth_error)
-        retry_on_auth_error = retry_on_auth_error == nil and true or retry_on_auth_error
-        
-        local user_session = Config.getUserSession()
+
+        local res = scraper(query)
+
         local loading_msg = Ui.showLoadingMessage(T("Searching for \"") .. query .. "\"...")
 
-        local selected_languages = Config.getSearchLanguages()
-        local selected_extensions = Config.getSearchExtensions()
-        local selected_order = Config.getSearchOrder()
-        local current_page_to_search = 1
-
-        local task = function()
-            return Api.search(query, user_session and user_session.user_id, user_session and user_session.user_key, selected_languages, selected_extensions, selected_order, current_page_to_search)
-        end
-
-        local on_success
-        on_success = function(api_result)
-            if api_result.error then
-                if retry_on_auth_error and Api.isAuthenticationError(api_result.error) then
-                    Ui.closeMessage(loading_msg)
-                    self:login(function(login_ok)
-                        if login_ok then
-                            attemptSearch(false)
-                        end
-                    end)
-                    return
-                end
-                
-                -- Use the retry dialog for timeouts and HTTP 400 errors
-                Ui.showSearchErrorDialog(api_result.error, query, user_session, selected_languages, selected_extensions, selected_order, current_page_to_search, loading_msg, on_success, function(final_err_msg)
-                    -- Cancel callback - user already knows about the error
-                end)
-                return
-            end
-
-            if not api_result.results or #api_result.results == 0 then
-                Ui.closeMessage(loading_msg)
-                Ui.showInfoMessage(T("No results found for \"") .. query .. "\".")
-                return
-            end
-
+        if #res == 0 then
             Ui.closeMessage(loading_msg)
-            logger.info(string.format("Zlibrary:performSearch - Fetch successful. Results: %d", #api_result.results))
-            self.current_search_query = query
-            self.current_search_api_page_loaded = current_page_to_search
-            self.all_search_results_data = api_result.results
-            self.has_more_api_results = true
-
-            UIManager:nextTick(function()
-                self:displaySearchResults(self.all_search_results_data, self.current_search_query)
-            end)
+            Ui.showInfoMessage(T("No results found for \"") .. query .. "\".")
+            return
         end
 
-        local on_error_handler = function(err_msg)
-            if retry_on_auth_error and Api.isAuthenticationError(err_msg) then
-                Ui.closeMessage(loading_msg)
-                self:login(function(login_ok)
-                    if login_ok then
-                        attemptSearch(false)
-                    end
-                end)
-                return
-            end
-            
-            -- Use the retry dialog for timeouts and HTTP 400 errors
-            Ui.showSearchErrorDialog(err_msg, query, user_session, selected_languages, selected_extensions, selected_order, current_page_to_search, loading_msg, on_success, function(final_err_msg)
-                -- Cancel callback - user already knows about the error
-            end)
-        end
+        Ui.closeMessage(loading_msg)
+        logger.info(string.format("Zlibrary:performSearch - Fetch successful. Results: %d", #res))
+        self.current_search_query = query
+        --self.current_search_api_page_loaded = current_page_to_search
+        self.all_search_results_data = res
+        --self.has_more_api_results = true
 
-        AsyncHelper.run(task, on_success, on_error_handler, loading_msg)
+        UIManager:nextTick(function()
+            self:displaySearchResults(self.all_search_results_data, self.current_search_query)
+        end)
+
+        AsyncHelper.run(task, loading_msg)
     end
 
     attemptSearch()

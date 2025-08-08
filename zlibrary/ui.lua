@@ -11,7 +11,7 @@ local logger = require("logger")
 local Config = require("zlibrary.config")
 local Api = require("zlibrary.api")
 local AsyncHelper = require("zlibrary.async_helper")
-
+require('src.scraper')
 local Ui = {}
 
 local _plugin_instance = nil
@@ -315,7 +315,7 @@ function Ui.showSearchDialog(parent_zlibrary, def_input)
     end
 
     dialog = InputDialog:new{
-        title = T("Search Z-library"),
+        title = T("Search Annas Archive"),
         input = def_input,
         buttons = {{{
         text = T("Search"),
@@ -483,7 +483,7 @@ function Ui.showBookDetails(parent_zlibrary, book, clear_cache_callback)
                 end,
             })
         else
-            table.insert(details_menu_items, { text = string.format(T("Format: %s (Download not available)"), book.format), enabled = false })
+            table.insert(details_menu_items, { text = string.format(T("Format: %s (Download source unavailable [zlib, lgli])"), book.format), enabled = false })
         end
     elseif book.download then
         table.insert(details_menu_items, {
