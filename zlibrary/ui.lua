@@ -356,7 +356,12 @@ function Ui.showSearchDialog(parent_zlibrary, def_input)
                     Ui.showSearchDialog(parent_zlibrary, def_input)
                 end)
             end
-        }},{{
+        }},--[[ {{
+            text = T("Settings"),
+                    keep_menu_open = true,
+                    separator = true,
+                    sub_item_table = {}
+        }} ]]{{
             text = T("Cancel"),
             id = "close",
             callback = function() _closeAndUntrackDialog(dialog) end,

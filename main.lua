@@ -24,7 +24,7 @@ local DialogManager = require("zlibrary.dialog_manager")
 require('src.scraper')
 
 local Zlibrary = WidgetContainer:extend{
-    name = T("Z-library"),
+    name = T("Annas Archive"),
     is_doc_only = false,
     plugin_path = nil,
     dialog_manager = nil,
@@ -68,8 +68,12 @@ function Zlibrary:addToMainMenu(menu_items)
     if not self.ui.view then
         menu_items.zlibrary_main = {
             sorting_hint = "search",
-            text = T("Annas Search"),
-            sub_item_table = {
+            text = T("Annas Archive"),
+            callback = function()
+                Ui.showSearchDialog(self)
+            end,
+            --[[ sub_item_table = {
+                text = T("Search"),
                 {
                     text = T("Settings"),
                     keep_menu_open = true,
@@ -155,14 +159,6 @@ function Zlibrary:addToMainMenu(menu_items)
                             sub_item_table_func = function()
                                 return {
                                     {
-                                        text = T("Clear user session"),
-                                        keep_menu_open = true,
-                                        callback = function()
-                                            Config.clearUserSession()
-                                            Ui.showInfoMessage(T("Session cleared. You will need to login again."))
-                                        end,
-                                    },
-                                    {
                                         text = T("Test mode"),
                                         keep_menu_open = true,
                                         checked_func = function()
@@ -204,7 +200,7 @@ function Zlibrary:addToMainMenu(menu_items)
                         self:showMultiSearchDialog(search_tab_most_popular)
                     end,
                 },
-            }
+            } ]]
         }
     end
 end
@@ -629,13 +625,13 @@ function Zlibrary:downloadBook(book)
         return
     end
 
-    local download_url = Config.getDownloadUrl(book.download)
+    --[[     local download_url = Config.getDownloadUrl(book.download)
     logger.info(string.format("Zlibrary:downloadBook - Download URL: %s", download_url))
 
     local safe_title = util.trim(book.title or "Unknown Title"):gsub("[/\\?%*:|\"<>%c]", "_")
     local safe_author = util.trim(book.author or "Unknown Author"):gsub("[/\\?%*:|\"<>%c]", "_")
     local filename = string.format("%s - %s.%s", safe_title, safe_author, book.format or "unknown")
-    logger.info(string.format("Zlibrary:downloadBook - Proposed filename: %s", filename))
+    logger.info(string.format("Zlibrary:downloadBook - Proposed filename: %s", filename)) ]]
 
     local target_dir = Config.getDownloadDir()
 
@@ -655,8 +651,8 @@ function Zlibrary:downloadBook(book)
         logger.info(string.format("Zlibrary:downloadBook - Created downloads directory: %s", target_dir))
     end
 
-    local target_filepath = target_dir .. "/" .. filename
-    logger.info(string.format("Zlibrary:downloadBook - Target filepath: %s", target_filepath))
+    --local target_filepath = target_dir .. "/" .. filename
+    --logger.info(string.format("Zlibrary:downloadBook - Target filepath: %s", target_filepath))
 
     local function attemptDownload(retry_on_auth_error)
         retry_on_auth_error = retry_on_auth_error == nil and true or retry_on_auth_error
@@ -667,11 +663,13 @@ function Zlibrary:downloadBook(book)
         local loading_msg = Ui.showLoadingMessage(T("Downloading…"))
 
         local function task_download()
-            return Api.downloadBook(download_url, target_filepath, user_session and user_session.user_id, user_session and user_session.user_key, referer_url)
+            --return Api.downloadBook(download_url, target_filepath, user_session and user_session.user_id, user_session and user_session.user_key, referer_url)
+            return download_book(book, target_dir)
         end
 
         local function on_success_download(api_result)
-            if api_result and api_result.error and retry_on_auth_error and Api.isAuthenticationError(api_result.error) then
+            -- i think this is just for login issue catching but we dont need a login
+--[[             if api_result and api_result.error and retry_on_auth_error and Api.isAuthenticationError(api_result.error) then
                 Ui.closeMessage(loading_msg)
                 self:login(function(login_ok)
                     if login_ok then
@@ -679,14 +677,14 @@ function Zlibrary:downloadBook(book)
                     end
                 end)
                 return
-            end
+            end ]]
 
             Ui.closeMessage(loading_msg)
-            if api_result and api_result.success then
+            if not string.find(api_result, 'Failed,', 1, true)  then
                 local has_wifi_toggle = Device:hasWifiToggle()
                 local default_turn_off_wifi = Config.getTurnOffWifiAfterDownload()
 
-                Ui.confirmOpenBook(filename, has_wifi_toggle, default_turn_off_wifi, function(should_turn_off_wifi)
+                Ui.confirmOpenBook(api_result, has_wifi_toggle, default_turn_off_wifi, function(should_turn_off_wifi)
                     if should_turn_off_wifi then
                         NetworkMgr:disableWifi(function()
                             logger.info("Zlibrary:downloadBook - Wi-Fi disabled after download as requested by user")
@@ -696,7 +694,7 @@ function Zlibrary:downloadBook(book)
                     if ReaderUI then
                         logger.info("Zlibrary:downloadBook - Cleaning up dialogs before opening reader")
                         self.dialog_manager:closeAllDialogs()
-                        ReaderUI:showReader(target_filepath)
+                        ReaderUI:showReader(api_result)
                     else
                         Ui.showErrorMessage(T("Could not open reader UI."))
                         logger.warn("Zlibrary:downloadBook - ReaderUI not available.")
@@ -713,19 +711,15 @@ function Zlibrary:downloadBook(book)
                 end
             )
             else
-                local fail_msg = (api_result and api_result.message) or T("Download failed: Unknown error")
-                if api_result and api_result.error and string.find(api_result.error, "Download limit reached or file is an HTML page", 1, true) then
-                    fail_msg = T("Download limit reached. Please try again later or check your account.")
-                elseif api_result and api_result.error then
-                    fail_msg = api_result.error
-                end
+                local fail_msg = api_result
                 Ui.showErrorMessage(fail_msg)
                 pcall(os.remove, target_filepath)
             end
         end
 
         local function on_error_download(err_msg)
-            if retry_on_auth_error and Api.isAuthenticationError(err_msg) then
+            -- again authen stuff
+--[[             if retry_on_auth_error and Api.isAuthenticationError(err_msg) then
                 Ui.closeMessage(loading_msg)
                 self:login(function(login_ok)
                     if login_ok then
@@ -733,7 +727,7 @@ function Zlibrary:downloadBook(book)
                     end
                 end)
                 return
-            end
+            end ]]
             
             local error_string = tostring(err_msg)
             if string.find(error_string, "Download limit reached or file is an HTML page", 1, true) then
@@ -758,7 +752,7 @@ function Zlibrary:downloadBook(book)
         AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg)
     end
 
-    Ui.confirmDownload(filename, function()
+    Ui.confirmDownload(book.title, function()
         attemptDownload()
     end)
 end

@@ -127,11 +127,31 @@ function scraper(query)
 
         segments = {}
 
-        for segment in result_html:gmatch(split_pattern .. '(.-)(<div class="h%-%[110px%] flex flex%-col justify%-center ">)') do
+        local start_pos = 1
+
+        while true do
+            local s, e = result_html:find(split_pattern, start_pos)
+            if not s then break end
+        
+            -- Find the next occurrence of the split_pattern after the current one
+            local next_s = result_html:find(split_pattern, e + 1)
+        
+            -- Extract segment from current start to next start - 1, or end of string if none
+            local segment
+            if next_s then
+                segment = result_html:sub(s, next_s - 1)
+                start_pos = next_s
+            else
+                segment = result_html:sub(s)
+                start_pos = #result_html + 1
+            end
+        
             table.insert(segments, segment)
         end
 
         local book_lst = {}
+        book_count = 0 
+
         for i, entry in ipairs(segments) do
             print("\n---- Entry #" .. i .. " ----\n")
 
@@ -155,11 +175,17 @@ function scraper(query)
                 end
             end
 
+            local number_str = entry:match(" (%d+%.?%d*)MB, ")
+            book.size = number_str .. "MB"
+
             print(book.title)
             print(book.download)
 
             table.insert(book_lst, book)
+            book_count = book_count + 1
         end
+
+        print("found " .. book_count .. " entries")
 
         return book_lst
     else
@@ -167,13 +193,21 @@ function scraper(query)
     end
 end
 
-function download_book(book)
+function sanitize_name(name)
+    local sanitized = name
+    sanitized = sanitized:gsub("[^%w._-]", "_")
+    sanitized = sanitized:gsub(" ", "_")
+    return sanitized
+end
+
+function download_book(book, path)
+    local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
     lgli_url = "https://libgen.li/"
     print(book.title)
 
     if not book.download then
         print('no source available')
-        return "failed"
+        return "Failed, no download source available [lgli, zlib]."
     end
     
     if string.find(book.download, 'lgli', 1, true) then
@@ -181,16 +215,35 @@ function download_book(book)
         local status, data = check_curl(download_page, "curl -s -L")
 
         if status == "no_curl" then
-            return "Curl is not installed or not in PATH:" .. data
+            return "Failed, curl is not installed or not in PATH:" .. data
         elseif status == "network_error" then
-            return "Please check connection, Network/HTTP error:" .. data
+            return "Failed, please check connection, Network/HTTP error:" .. data
         elseif status == "success" then
             print("Curl succeeded!")
-            print(data)
+
+            local download_link = data:match('href="([^"]*get%.php[^"]*)"')
+
+            if download_link then
+                print("Found link:", download_link)
+                local download_url = lgli_url .. download_link
+                local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
+
+                local status, data = check_curl(download_url, curl_command )
+                print('data:\n', data)
+                print('status:\n', status)
+                print(filename)
+                return filename
+
+            else
+                print("No matching link found.")
+                return 'Failed, could not fetch download link from source page.'
+            end
+
         end
         
     else
         print('book not available on libgen')
+        return "Failed, book not available on libgen."
     end
 end
 
@@ -198,6 +251,6 @@ if ... == nil then
     -- This block runs only if executed directly:
     print("Running as main script")
     local book_lst = scraper('Marx')
-    download_book(book_lst[2])
+    --download_book(book_lst[2])
 
 end
