@@ -1,3 +1,5 @@
+local Config = require("zlibrary.config")
+
 local function extract_md5_and_link(line)
     -- Match href="/md5/<md5hash>"
     local link, md5 = line:match('href="(/md5/([a-fA-F0-9]+))"')
@@ -109,7 +111,19 @@ function scraper(query)
     print('got query: ', query)
 
     local encoded_query = string.gsub(query, " ", "+")
-    local filters = ""
+    local language = Config.getSearchLanguages()
+    local ext = Config.getSearchExtensions()
+    local filters = ''
+
+    if language then
+        filters = "&lang=" .. language[1]
+    end
+
+    if ext then
+        filters = filters .. "&ext=" .. string.lower(ext)
+    end
+
+    print('applying filters: ', filters)
 
     local url = string.format("%ssearch?page=%s&q=%s%s", annas_url, page, encoded_query, filters)
     
@@ -250,6 +264,7 @@ end
 if ... == nil then
     -- This block runs only if executed directly:
     print("Running as main script")
+    scraper("hello")
     local book_lst = scraper('Marx')
     --download_book(book_lst[2])
 
