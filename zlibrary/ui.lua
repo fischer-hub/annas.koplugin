@@ -12,6 +12,7 @@ local Config = require("zlibrary.config")
 local Api = require("zlibrary.api")
 local AsyncHelper = require("zlibrary.async_helper")
 require('src.scraper')
+require('src.update')
 local Ui = {}
 
 local _plugin_instance = nil
@@ -117,7 +118,7 @@ end
 function Ui.showDownloadDirectoryDialog()
     local current_dir = Config.getSetting(Config.SETTINGS_DOWNLOAD_DIR_KEY)
     DownloadMgr:new{
-        title = T("Select Z-library Download Directory"),
+        title = T("Select Download Directory"),
         onConfirm = function(path)
             if path then
                 Config.saveSetting(Config.SETTINGS_DOWNLOAD_DIR_KEY, path)
@@ -127,6 +128,75 @@ function Ui.showDownloadDirectoryDialog()
             end
         end,
     }:chooseDir(current_dir)
+end
+
+function Ui.showSettingsDialog()
+
+    dialog = InputDialog:new{
+        title = T("Settings"),
+        input = def_input,
+        buttons = {
+            {{
+            text = T("Set Download Directory"),
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                Ui.showDownloadDirectoryDialog()
+            end,
+            }},{{
+                text = T("Set Anna's Base URL"),
+                keep_menu_open = true,
+                callback = function()
+                    _closeAndUntrackDialog(dialog)
+                    Ui.showGenericInputDialog(
+                        T("Set Anna's Base URL"),
+                        Config.SETTINGS_BASE_URL_KEY,
+                        Config.getBaseUrl(),
+                        false,
+                        function(input_value)
+                            local success, err_msg = Config.setAndValidateBaseUrl(input_value)
+                            if not success then
+                                Ui.showErrorMessage(err_msg or T("Invalid Base URL."))
+                                return false
+                            end
+                            return true
+                        end
+                    )
+                end,
+                separator = true,
+            }}, {{
+            text = T("Check for updates"),
+            keep_menu_open = false,
+            separator = true,
+            callback = function()
+                local full_source_path = debug.getinfo(1, "S").source
+                if full_source_path:sub(1,1) == "@" then
+                    full_source_path = full_source_path:sub(2)
+                end
+                local plugin_path, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
+
+                if plugin_path then
+
+                    res = check_version(plugin_path)
+
+                    if not string.find(res, T("Failed")) then
+                        Ui.showInfoMessage(T(res))
+                    else
+                        Ui.showErrorMessage(T(res))
+                    end
+
+                else
+                    logger.err("ZLibrary: Plugin path not available for OTA update.")
+                    Ui.showErrorMessage(T("Error: Plugin path not found. Cannot check for updates."))
+                end
+            end,
+            }}
+        }
+    }
+    _showAndTrackDialog(dialog)
+    
+    
+    
+    
 end
 
 local function _showMultiSelectionDialog(parent_ui, title, setting_key, options_list, ok_callback, is_single)
@@ -279,7 +349,7 @@ function Ui.showGenericInputDialog(title, setting_key, current_value_or_default,
     dialog:onShowKeyboard()
 end
 
-function Ui.showSearchDialog(parent_zlibrary, def_input)
+function Ui.showSearchDialog(parent_zlibrary, def_input, Ota)
     -- save last search input
     if Ui._last_search_input and not def_input then
         def_input = Ui._last_search_input
@@ -356,12 +426,15 @@ function Ui.showSearchDialog(parent_zlibrary, def_input)
                     Ui.showSearchDialog(parent_zlibrary, def_input)
                 end)
             end
-        }},--[[ {{
+        }},{{
             text = T("Settings"),
-                    keep_menu_open = true,
-                    separator = true,
-                    sub_item_table = {}
-        }} ]]{{
+            keep_menu_open = true,
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                print("show settings")
+                Ui.showSettingsDialog(Ota)
+            end,
+        }},{{
             text = T("Cancel"),
             id = "close",
             callback = function() _closeAndUntrackDialog(dialog) end,

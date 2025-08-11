@@ -24,7 +24,7 @@ local DialogManager = require("zlibrary.dialog_manager")
 require('src.scraper')
 
 local Zlibrary = WidgetContainer:extend{
-    name = T("Annas Archive"),
+    name = T("Anna's Archive"),
     is_doc_only = false,
     plugin_path = nil,
     dialog_manager = nil,
@@ -65,10 +65,11 @@ function Zlibrary:onZlibrarySearch()
 end
 
 function Zlibrary:addToMainMenu(menu_items)
+
     if not self.ui.view then
         menu_items.zlibrary_main = {
             sorting_hint = "search",
-            text = T("Annas Archive"),
+            text = T("Anna's Archive"),
             callback = function()
                 Ui.showSearchDialog(self)
             end,
