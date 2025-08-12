@@ -113,6 +113,7 @@ function scraper(query)
     local encoded_query = string.gsub(query, " ", "+")
     local language = Config.getSearchLanguages()
     local ext = Config.getSearchExtensions()
+    --local timeout = Config.getSearchTimeout()
     local filters = ''
 
     if language then
