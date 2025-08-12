@@ -111,17 +111,21 @@ function scraper(query)
     print('got query: ', query)
 
     local encoded_query = string.gsub(query, " ", "+")
-    local language = Config.getSearchLanguages()
+    local languages = Config.getSearchLanguages()
     local ext = Config.getSearchExtensions()
     --local timeout = Config.getSearchTimeout()
     local filters = ''
 
-    if language then
-        filters = "&lang=" .. language[1]
+    if languages then
+        for k, lang in pairs(languages) do
+            filters = "&lang=" .. lang
+        end
     end
 
     if ext then
-        filters = filters .. "&ext=" .. string.lower(ext)
+        for k, e in pairs(ext) do
+            filters = filters .. "&ext=" .. string.lower(e)
+        end
     end
 
     print('applying filters: ', filters)
