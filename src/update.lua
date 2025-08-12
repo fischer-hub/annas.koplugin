@@ -1,5 +1,18 @@
 function download_update(sha)
 
+    local sha_file = "annas_last_sha.txt"
+
+
+    local function save_sha(sha)
+        local file = io.open(sha_file, "w")
+        if file then
+            file:write(sha)
+            file:close()
+        end
+    end
+
+    local resp = {}
+
     local owner = "fischer-hub"    -- GitHub repo owner
     local repo = "annas.koplugin"      -- GitHub repo name
     local branch = "main"         -- branch to check
@@ -7,26 +20,41 @@ function download_update(sha)
     print("Downloading latest version...")
 
     -- Download ZIP
-    os.execute(string.format('curl -L -s -o latest.zip "%s"', zip_url))
+    local command = string.format('curl -L -s -o latest.zip "%s"', zip_url)
+    local handle = io.popen(command)
+
+    if not handle then
+        resp.err = 1
+        resp.msg = "Failed to download update files."
+        return resp
+    end
+
+    local result = handle:read("*a")
+    handle:close()
 
     -- Make temp folder
-    os.execute('mkdir -p temp_update')
+    handle = io.popen('mkdir -p temp_update')
 
+    handle = io.popen('unzip -q latest.zip -d temp_update')
     -- Unzip into temp folder
-    os.execute('unzip -q latest.zip -d temp_update')
-    os.execute('rm latest.zip')
+    handle = io.popen('rm latest.zip')
 
     -- The extracted folder is usually repo-branch
     local folder_name = string.format("temp_update/%s-%s", repo, branch)
 
     -- Copy all files from extracted folder to current directory
     -- -r = recursive, -u = update only if newer
-    os.execute(string.format('cp -ru "%s/"* .', folder_name))
+    handle = io.popen(string.format('cp -ru "%s/"* .', folder_name))
+    
 
     -- Clean up temp folder
-    os.execute('rm -rf temp_update')
+    handle = io.popen('rm -rf temp_update')
 
-    print("Update complete.")
+
+    save_sha(sha)
+    resp.err = 0
+    resp.msg = "Update installed sucessfully! Please restart."
+    return resp
 
 end
 
@@ -79,22 +107,31 @@ function check_version(plugin_path)
     local last_sha = read_last_sha()
     local latest_sha = get_latest_sha()
 
+    local resp = {}
     if not latest_sha then
         print("Could not get latest commit SHA")
-        return "Failed, could not get latest commit SHA"
+        resp.msg ="Failed, could not get latest commit SHA"
+        resp.err = 1
+        return resp
     end
     if last_sha == nil then
         print("No previous SHA found. Saving current SHA:", latest_sha)
         save_sha(latest_sha)
-        return 'Failed, no previous SHA found, please try again.'
+        resp.msg = 'Failed, no previous SHA found, please try again.'
+        resp.err = 1
+        return resp
     elseif last_sha ~= latest_sha then
-        print("Project updated! New commit SHA:", latest_sha)
-        download_update(latest_sha)
-        save_sha(latest_sha)
-        return 'Update installed successfully! Please restart to apply changes.'
+        resp.msg = "Update available, trying to install ..."
+        resp.sha = latest_sha
+        resp.err = 0
+        return  resp
+        --download_update(latest_sha)
+        --save_sha(latest_sha)
     else
         print("No updates. Latest commit SHA:", latest_sha)
-        return "Already Up to Date!"
+        resp.msg = "Already Up to Date!"
+        resp.err = 2
+        return resp
     end
 end
 
