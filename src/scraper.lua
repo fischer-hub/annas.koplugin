@@ -73,7 +73,7 @@ end
 
 function check_curl(url, command)
     -- Try to start curl
-    local command = string.format('%s "%s"', command, url)
+    local command = string.format('%s --connect-timeout 20 "%s"', command, url)
     print('executing command:\n', command)
     local handle, err = io.popen(
         command, "r"
@@ -230,50 +230,110 @@ function sanitize_name(name)
 end
 
 function download_book(book, path)
-    local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
-    lgli_url = "https://libgen.li/"
-    print(book.title)
 
-    if not book.download then
-        print('no source available')
-        return "Failed, no download source available [lgli, zlib]."
-    end
-    
-    if string.find(book.download, 'lgli', 1, true) then
-        download_page = lgli_url .. "ads.php?md5=" .. book.md5
-        local status, data = check_curl(download_page, "curl -s -L")
+    local lgli_exts = {
+        [1] = ".li/",
+        [2] = ".is/",
+        [3] = ".rs/",
+        [4] = ".st/",
+    }
 
-        if status == "no_curl" then
-            return "Failed, curl is not installed or not in PATH:" .. data
-        elseif status == "network_error" then
-            return "Failed, please check connection, Network/HTTP error:" .. data
-        elseif status == "success" then
-            print("Curl succeeded!")
+    for _, lgli_ext in ipairs(lgli_exts) do
+        
+        ::continue::
 
-            local download_link = data:match('href="([^"]*get%.php[^"]*)"')
+        local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
+        lgli_url = "https://libgen" .. lgli_ext
+        print(book.title)
 
-            if download_link then
-                print("Found link:", download_link)
-                local download_url = lgli_url .. download_link
-                local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
-
-                local status, data = check_curl(download_url, curl_command )
-                print('data:\n', data)
-                print('status:\n', status)
-                print(filename)
-                return filename
-
-            else
-                print("No matching link found.")
-                return 'Failed, could not fetch download link from source page.'
-            end
-
+        if not book.download then
+            print('no source available')
+            return "Failed, no download source available [lgli, zlib]."
         end
         
-    else
-        print('book not available on libgen')
-        return "Failed, book not available on libgen."
+        if string.find(book.download, 'lgli', 1, true) then
+            download_page = lgli_url .. "ads.php?md5=" .. book.md5
+            local status, data = check_curl(download_page, "curl -s -L")
+
+            if status == "no_curl" then
+                return "Failed, curl is not installed or not in PATH:" .. data
+            elseif status == "network_error" then
+                return "Failed, please check connection, Network/HTTP error:" .. data
+            elseif status == "success" then
+                print("Curl succeeded!")
+
+                local download_link = data:match('href="([^"]*get%.php[^"]*)"')
+
+                if download_link then
+                    print("Found link:", download_link)    local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
+                    lgli_url = "https://libgen"
+                    print(book.title)
+            
+                    if not book.download then
+                        print('no source available')
+                        return "Failed, no download source available [lgli, zlib]."
+                    end
+                    
+                    if string.find(book.download, 'lgli', 1, true) then
+                        download_page = lgli_url .. "ads.php?md5=" .. book.md5
+                        local status, data = check_curl(download_page, "curl -s -L")
+            
+                        if status == "no_curl" then
+                            return "Failed, curl is not installed or not in PATH:" .. data
+                        elseif status == "network_error" then
+                            return "Failed, please check connection, Network/HTTP error:" .. data
+                        elseif status == "success" then
+                            print("Curl succeeded!")
+            
+                            local download_link = data:match('href="([^"]*get%.php[^"]*)"')
+            
+                            if download_link then
+                                print("Found link:", download_link)
+                                local download_url = lgli_url .. download_link
+                                local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
+            
+                                local status, data = check_curl(download_url, curl_command )
+                                print('data:\n', data)
+                                print('status:\n', status)
+                                print(filename)
+                                return filename
+            
+                            else
+                                print("No matching link found.")
+                                --goto continue
+                            end
+            
+                        end
+                        
+                    else
+                        print('book not available on libgen')
+                        --goto continue
+                    end
+
+                    local download_url = lgli_url .. download_link
+                    local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
+
+                    local status, data = check_curl(download_url, curl_command )
+                    print('data:\n', data)
+                    print('status:\n', status)
+                    print(filename)
+                    return filename
+
+                else
+                    print("No matching link found.")
+                    --return 'Failed, could not fetch download link from source page.'
+                end
+
+            end
+            
+        else
+            print('book not available on libgen')
+            --return "Failed, book not available on libgen."
+        end
     end
+    
+    return 'Failed, could not fetch download link from source page.'
+    
 end
 
 if ... == nil then
