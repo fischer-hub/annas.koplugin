@@ -168,6 +168,7 @@ function Ui.showSettingsDialog()
             keep_menu_open = false,
             separator = true,
             callback = function()
+                _closeAndUntrackDialog(dialog)
                 local full_source_path = debug.getinfo(1, "S").source
                 if full_source_path:sub(1,1) == "@" then
                     full_source_path = full_source_path:sub(2)
@@ -176,12 +177,22 @@ function Ui.showSettingsDialog()
 
                 if plugin_path then
 
-                    res = check_version(plugin_path)
+                    resp = check_version(plugin_path)
 
-                    if not string.find(res, T("Failed")) then
-                        Ui.showInfoMessage(T(res))
+                    if resp.err == 0 then
+                        Ui.showInfoMessage(T(resp.msg))
+                        resp = download_update(resp.sha)
+
+                        if resp.err == 0 then
+                            Ui.showInfoMessage(T(resp.msg))
+                        else
+                            Ui.showErrorMessage(T(resp.msg))
+                        end
+
+                    elseif resp.err == 1 then
+                        Ui.showErrorMessage(T(resp.msg))
                     else
-                        Ui.showErrorMessage(T(res))
+                        Ui.showInfoMessage(T(resp.msg))
                     end
 
                 else

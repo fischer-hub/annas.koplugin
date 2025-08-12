@@ -113,12 +113,14 @@ function scraper(query)
     local encoded_query = string.gsub(query, " ", "+")
     local languages = Config.getSearchLanguages()
     local ext = Config.getSearchExtensions()
+    local order = Config.getSearchOrder()
+    local src = 'lgli'
     --local timeout = Config.getSearchTimeout()
     local filters = ''
 
     if languages then
         for k, lang in pairs(languages) do
-            filters = "&lang=" .. lang
+            filters = filters .. "&lang=" .. lang
         end
     end
 
@@ -126,6 +128,14 @@ function scraper(query)
         for k, e in pairs(ext) do
             filters = filters .. "&ext=" .. string.lower(e)
         end
+    end
+
+    if order then
+        filters = filters .. "&sort=" .. order[1]
+    end
+
+    if src then
+        filters = filters .. "&src=" .. src
     end
 
     print('applying filters: ', filters)

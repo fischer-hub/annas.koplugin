@@ -79,10 +79,10 @@ Config.SUPPORTED_LANGUAGES = {
     { name = "বাংলা", value = "bengali" },
     { name = "简体中文", value = "chinese" },
     { name = "Nederlands", value = "dutch" },
-    { name = "English", value = "english" },
-    { name = "Français", value = "french" },
+    { name = "English", value = "en" },
+    { name = "Français", value = "fr" },
     { name = "ქართული", value = "georgian" },
-    { name = "Deutsch", value = "german" },
+    { name = "Deutsch", value = "de" },
     { name = "Ελληνικά", value = "greek" },
     { name = "हिन्दी", value = "hindi" },
     { name = "Bahasa Indonesia", value = "indonesian" },
@@ -95,7 +95,7 @@ Config.SUPPORTED_LANGUAGES = {
     { name = "Português", value = "portuguese" },
     { name = "Русский", value = "russian" },
     { name = "Српски", value = "serbian" },
-    { name = "Español", value = "spanish" },
+    { name = "Español", value = "sp" },
     { name = "తెలుగు", value = "telugu" },
     { name = "ไทย", value = "thai" },
     { name = "繁體中文", value = "traditional chinese" },
@@ -121,7 +121,16 @@ Config.SUPPORTED_EXTENSIONS = {
 }
 
 Config.SUPPORTED_ORDERS = {
-    { name = T("Most popular"), value = "popular" },
+    { name = T("Most Relevant"), value = "" },
+    { name = T("Newest"), value = "newest" },
+    { name = T("Oldest"), value = "oldest" },
+    { name = T("Largest"), value = "largest"},
+    { name = T("Smallest"), value = "smallest"},
+    { name = T("Newest Added"), value = "newest_added"},
+    { name = T("Oldest Added"), value = "oldest_added"},
+    { name = T("Random"), value = "random"}
+}
+    --[[ { name = T("Most popular"), value = "popular" },
     { name = T("Best match"), value = "bestmatch" },
     { name = T("Recently added"), value = "date" },
     { name = string.format("%s %s", T("Title"), "(A-Z)"), value = "titleA" },
@@ -129,7 +138,7 @@ Config.SUPPORTED_ORDERS = {
     { name = T("Year"), value = "year" },
     { name = string.format("%s %s", T("File size"), "↓"), value = "filesize" },
     { name = string.format("%s %s", T("File size"), "↑"), value = "filesizeA" }
-}
+} ]]
 
 function Config.getBaseUrl()
     local configured_url = Config.getSetting(Config.SETTINGS_BASE_URL_KEY)
