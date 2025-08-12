@@ -130,7 +130,7 @@ function scraper(query)
         end
     end
 
-    if order then
+    if order[1] then
         filters = filters .. "&sort=" .. order[1]
     end
 
