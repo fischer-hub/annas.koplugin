@@ -12,7 +12,7 @@ local DataStorage = require("datastorage")
 
 local Ota = {}
 
-local GITHUB_REPO = "ZlibraryKO/zlibrary.koplugin"
+local GITHUB_REPO = "fischer-hub/annas.koplugin"
 local LATEST_RELEASE_URL = "https://api.github.com/repos/" .. GITHUB_REPO .. "/releases/latest"
 
 local current_ota_status_widget = nil
@@ -183,7 +183,7 @@ function Ota.installUpdate(zip_filepath, plugin_base_path)
     _show_ota_status_loading(T("Installing update..."))
 
     local target_unzip_dir = DataStorage:getDataDir()
-    local excluded_file_path_in_zip = "plugins/zlibrary.koplugin/zlibrary_credentials.lua"
+    local excluded_file_path_in_zip = "plugins/annas.koplugin/zlibrary_credentials.lua"
 
     local unzip_command = string.format("unzip -o '%s' -d '%s' -x '%s'", zip_filepath, target_unzip_dir, excluded_file_path_in_zip)
     logger.info("Zlibrary:Ota.installUpdate - Executing: " .. unzip_command)
@@ -230,8 +230,8 @@ function Ota.startUpdateProcess(plugin_path_from_main)
         return
     end
 
-    if not string.match(plugin_path_from_main, "plugins/zlibrary.koplugin/?$") then
-        local err_msg = string.format(T("Unsupported plugin path for OTA update: %s. Only 'plugins/zlibrary.koplugin' is supported."), plugin_path_from_main)
+    if not string.match(plugin_path_from_main, "plugins/annas.koplugin/?$") then
+        local err_msg = string.format(T("Unsupported plugin path for OTA update: %s. Only 'plugins/annas.koplugin' is supported."), plugin_path_from_main)
         logger.err("Zlibrary:Ota.startUpdateProcess - " .. err_msg)
         _show_ota_final_message(err_msg, true)
         return

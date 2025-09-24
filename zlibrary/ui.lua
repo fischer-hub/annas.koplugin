@@ -168,6 +168,14 @@ function Ui.showSettingsDialog()
             keep_menu_open = false,
             separator = true,
             callback = function()
+                if self.plugin_path then
+                    Ota.startUpdateProcess(self.plugin_path)
+                else
+                    logger.err("ZLibrary: Plugin path not available for OTA update.")
+                    Ui.showErrorMessage(T("Error: Plugin path not found. Cannot check for updates."))
+                end
+            end,
+            --[[callback = function()
                 _closeAndUntrackDialog(dialog)
                 local full_source_path = debug.getinfo(1, "S").source
                 if full_source_path:sub(1,1) == "@" then
@@ -199,7 +207,7 @@ function Ui.showSettingsDialog()
                     logger.err("ZLibrary: Plugin path not available for OTA update.")
                     Ui.showErrorMessage(T("Error: Plugin path not found. Cannot check for updates."))
                 end
-            end,
+            end,]]--
             }}
         }
     }
