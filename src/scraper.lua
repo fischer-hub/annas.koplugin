@@ -136,7 +136,15 @@ end
 
 function scraper(query)
 
-    local annas_url = "https://annas-archive.org/"
+    local aa_exts = {
+        [1] = ".se/",
+        [2] = ".org/",
+        [3] = ".li/",
+    }
+
+    local ext_counter = 0
+
+    local annas_url = "https://annas-archive"
     local page = "1"
 
     --local http = require("socket/http")
@@ -178,6 +186,10 @@ function scraper(query)
 
     print('applying filters: ', filters)
 
+    ::retry::
+    ext_counter = ext_counter + 1
+    annas_url = annas_url .. aa_exts[ext_counter]
+
     local url = string.format("%ssearch?page=%s&q=%s%s", annas_url, page, encoded_query, filters)
     
     local status, data = check_curl(url, "curl -s -S -o - ")
@@ -185,9 +197,21 @@ function scraper(query)
     if status == "no_curl" then
         return "Curl is not installed or not in PATH:" .. data
     elseif status == "network_error" then
+        if ext_counter < 3 then
+            print('Network error on ', annas_url)
+            print('Checking different mirror ...')
+            goto retry
+        end
         return "Please check connection, Network/HTTP error:" .. data
     elseif status == "success" then
         print("Curl succeeded!")
+
+        local ddos_guard_needle = 'der-gray-100<!doctype html><html><head><title>DDoS-Guard</titl'
+
+        if data:find(ddos_guard_needle, 1, true) then
+            print("DDoS guard triggered, trying different mirror ...")
+            goto retry
+        end
 
         --local split_pattern = '<div class="h%-%[110px%] flex flex%-col justify%-center ">'
         local split_pattern = 'pt-3 pb-3 border-b last:border-b-0 border-gray-100'
@@ -282,8 +306,13 @@ function scraper(query)
 
         return book_lst
     else
-        return "Unknown error occured: " .. data
+        if ext_counter < 3 then
+            print('Unknown error on ', annas_url)
+            print('Checking different mirror ...')
+            goto retry
+        end
     end
+    return "Unknown error occured: " .. data
 end
 
 function sanitize_name(name)
