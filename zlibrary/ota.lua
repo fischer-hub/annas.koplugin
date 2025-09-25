@@ -9,6 +9,7 @@ local NetworkMgr = require("ui/network/manager")
 local Api = require("zlibrary.api")
 local Ui = require("zlibrary.ui_ota")
 local DataStorage = require("datastorage")
+local lfs = require("libs/libkoreader-lfs")
 
 local Ota = {}
 
@@ -183,7 +184,8 @@ function Ota.installUpdate(zip_filepath, plugin_base_path)
 
     _show_ota_status_loading(T("Installing update..."))
 
-    local target_unzip_dir = DataStorage:getDataDir()
+    --local target_unzip_dir = DataStorage:getDataDir()
+    local target_unzip_dir = 'plugins/'
     local excluded_file_path_in_zip = "plugins/annas.koplugin/zlibrary_credentials.lua"
 
     local unzip_command = string.format("unzip -o '%s' -d '%s' -x '%s'", zip_filepath, target_unzip_dir, excluded_file_path_in_zip)
@@ -204,6 +206,29 @@ function Ota.installUpdate(zip_filepath, plugin_base_path)
     end
 
     logger.info("Zlibrary:Ota.installUpdate - ZIP extracted successfully.")
+
+    local unpacked_dir = nil
+    for entry in lfs.dir("plugins") do
+        if entry:match("^fischer") then
+            unpacked_dir = "plugins/" .. entry
+            break
+        end
+    end
+
+    os.execute("rm -rf plugins/annas.koplugin")
+    logger.info("Zlibrary:Ota.installUpdate - Trying to clean up old plugin files: 'plugins/annas.koplugin'")
+    
+    if unpacked_dir then
+
+        local mv_ok, mv_err = os.rename(unpacked_dir, 'plugins/annas.koplugin')
+        if not mv_ok then
+            print("Failed to move:", mv_err)
+        else
+            print("Moved successfully!")
+        end
+    else
+        print('Could not find extracted update files.')
+    end
 
     local rm_ok, rm_err = os.remove(zip_filepath)
     if not rm_ok then
