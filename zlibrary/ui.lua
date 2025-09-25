@@ -177,13 +177,13 @@ function Ui.showSettingsDialog()
             separator = true,
             callback = function()
                 
+                _closeAndUntrackDialog(dialog)
                 if plugin_path then
                     Ota.startUpdateProcess(plugin_path)
                 else
                     logger.err("ZLibrary: Plugin path not available for OTA update.")
                     Ui.showErrorMessage(T("Error: Plugin path not found. Cannot check for updates."))
                 end
-                _closeAndUntrackDialog(dialog)
             end,
             --[[callback = function()
                 _closeAndUntrackDialog(dialog)
