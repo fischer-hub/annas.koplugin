@@ -10,7 +10,6 @@ local util = require("util")
 local logger = require("logger")
 local Config = require("zlibrary.config")
 local Api = require("zlibrary.api")
-local Ota = require("zlibrary.ota")
 local AsyncHelper = require("zlibrary.async_helper")
 require('src.scraper')
 require('src.update')
@@ -137,8 +136,7 @@ function Ui.showSettingsDialog()
     if full_source_path:sub(1,1) == "@" then
         full_source_path = full_source_path:sub(2)
     end
-    local foo, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
-    local plugin_path, _ = foo:gsub("/zlibrary/", "")
+    local plugin_path, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
 
     dialog = InputDialog:new{
         title = T("Settings"),
@@ -176,14 +174,12 @@ function Ui.showSettingsDialog()
             keep_menu_open = false,
             separator = true,
             callback = function()
-                
                 if plugin_path then
-                    Ota.startUpdateProcess(plugin_path)
+                    Ota.startUpdateProcess(self.plugin_path)
                 else
                     logger.err("ZLibrary: Plugin path not available for OTA update.")
                     Ui.showErrorMessage(T("Error: Plugin path not found. Cannot check for updates."))
                 end
-                _closeAndUntrackDialog(dialog)
             end,
             --[[callback = function()
                 _closeAndUntrackDialog(dialog)

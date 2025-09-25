@@ -7,7 +7,7 @@ local UIManager = require("ui/uimanager")
 local util = require("util")
 local NetworkMgr = require("ui/network/manager")
 local Api = require("zlibrary.api")
-local Ui = require("zlibrary.ui")
+local Ui = require("zlibrary.ui_ota")
 local DataStorage = require("datastorage")
 
 local Ota = {}
@@ -39,7 +39,7 @@ local function _show_ota_final_message(text, is_error)
 end
 
 local function getCurrentPluginVersion(plugin_base_path)
-    local meta_file_full_path = plugin_base_path .. "_meta.lua"
+    local meta_file_full_path = plugin_base_path .. "/_meta.lua"
     logger.info("Zlibrary:Ota.getCurrentPluginVersion - Attempting to load version via dofile from: " .. meta_file_full_path)
 
     local ok, result = pcall(dofile, meta_file_full_path)
@@ -91,7 +91,7 @@ function Ota.fetchLatestReleaseInfo()
         url = LATEST_RELEASE_URL,
         method = "GET",
         headers = {
-            ["User-Agent"] = "KOReader-ZLibrary-Plugin",
+            ["User-Agent"] = "KOReader-Annas-Plugin",
             ["Accept"] = "application/vnd.github.v3+json",
         },
         timeout = 20,
@@ -125,6 +125,7 @@ function Ota.fetchLatestReleaseInfo()
     end
 
     logger.info("Zlibrary:Ota.fetchLatestReleaseInfo - END (Success)")
+    print(#data)
     result.release_info = data
     return result
 end
@@ -271,20 +272,26 @@ function Ota.startUpdateProcess(plugin_path_from_main)
     end
     logger.info("Zlibrary:Ota.startUpdateProcess - GitHub tag: " .. latest_version_tag .. ", Normalized latest version: " .. normalized_latest_version)
 
-    if not assets or type(assets) ~= "table" or #assets == 0 then
+    --[[if not assets or type(assets) ~= "table" or #assets == 0 then
+        for k,v in pairs(release_info) do
+            print(tostring(k).." = "..tostring(v))
+        end
+        print(release_info)
+        print(release_info[1])
         logger.warn("Zlibrary:Ota.startUpdateProcess - Invalid or missing assets in release information.")
         _show_ota_final_message(T("Could not find update files."), true)
         return
-    end
+    end]]--
 
-    if not assets[1] or type(assets[1]) ~= "table" or not assets[1].browser_download_url then
+    if not release_info.zipball_url then
         logger.warn("Zlibrary:Ota.startUpdateProcess - No download URL found in the first release asset.")
         _show_ota_final_message(T("Could not find a download link for the update."), true)
         return
     end
 
-    local download_url = assets[1].browser_download_url
-    local asset_name = assets[1].name or "zlibrary_plugin_update.zip"
+    --local download_url = assets[1].browser_download_url
+    local download_url = release_info.zipball_url
+    local asset_name = "annas_plugin_update.zip"
 
     local current_version = getCurrentPluginVersion(plugin_path_from_main)
     if not current_version then
