@@ -291,7 +291,7 @@ function Ota.startUpdateProcess(plugin_path_from_main)
 
     --local download_url = assets[1].browser_download_url
     local download_url = release_info.zipball_url
-    local release_msg = release_info.body
+    local release_msg = release_info.body:match("([^%.]*)")
     local asset_name = "annas_plugin_update.zip"
 
     local current_version = getCurrentPluginVersion(plugin_path_from_main)
@@ -313,7 +313,7 @@ function Ota.startUpdateProcess(plugin_path_from_main)
         return
     end
 
-    local confirmation_message = string.format(T([[New version available: %s (you have %s). %s Download and install?]]),
+    local confirmation_message = string.format(T([[New version available: %s (you have %s). %s. Download and install?]]),
         normalized_latest_version,
         current_version or T("an older version"),
         release_msg
