@@ -172,7 +172,7 @@ function Ui.showSettingsDialog()
                 end,
                 separator = true,
             }}, {{
-            text = T("Check for updates"),
+            text = T("Check for Updates"),
             keep_menu_open = false,
             separator = true,
             callback = function()
