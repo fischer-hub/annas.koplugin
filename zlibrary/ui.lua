@@ -151,27 +151,6 @@ function Ui.showSettingsDialog()
                 Ui.showDownloadDirectoryDialog()
             end,
             }},{{
-                text = T("Set Anna's Base URL"),
-                keep_menu_open = true,
-                callback = function()
-                    _closeAndUntrackDialog(dialog)
-                    Ui.showGenericInputDialog(
-                        T("Set Anna's Base URL"),
-                        Config.SETTINGS_BASE_URL_KEY,
-                        Config.getBaseUrl(),
-                        false,
-                        function(input_value)
-                            local success, err_msg = Config.setAndValidateBaseUrl(input_value)
-                            if not success then
-                                Ui.showErrorMessage(err_msg or T("Invalid Base URL."))
-                                return false
-                            end
-                            return true
-                        end
-                    )
-                end,
-                separator = true,
-            }}, {{
             text = T("Check for Updates"),
             keep_menu_open = false,
             separator = true,
