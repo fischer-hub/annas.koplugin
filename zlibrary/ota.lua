@@ -341,7 +341,7 @@ function Ota.startUpdateProcess(plugin_path_from_main)
         return
     end
 
-    local confirmation_message = string.format(T([[New version available: %s (you have %s). %s. Download and install?]]),
+    local confirmation_message = string.format(T("New version available: %s (you have %s). %s. Download and install?"),
         normalized_latest_version,
         current_version or T("an older version"),
         release_msg
