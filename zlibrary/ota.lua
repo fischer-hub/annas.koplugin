@@ -7,7 +7,7 @@ local UIManager = require("ui/uimanager")
 local util = require("util")
 local NetworkMgr = require("ui/network/manager")
 local Api = require("zlibrary.api")
-local Ui = require("zlibrary.ui_ota")
+--local Ui = require("zlibrary.ui_ota")
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
 
@@ -20,6 +20,7 @@ local current_ota_status_widget = nil
 
 local function _close_current_ota_status_widget()
     if current_ota_status_widget then
+        local Ui = require("zlibrary.ui")
         Ui.closeMessage(current_ota_status_widget)
         current_ota_status_widget = nil
     end
@@ -27,11 +28,13 @@ end
 
 local function _show_ota_status_loading(text)
     _close_current_ota_status_widget()
+    local Ui = require("zlibrary.ui")
     current_ota_status_widget = Ui.showLoadingMessage(text)
 end
 
 local function _show_ota_final_message(text, is_error)
     _close_current_ota_status_widget()
+    local Ui = require("zlibrary.ui")
     if is_error then
         Ui.showErrorMessage(text)
     else
