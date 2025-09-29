@@ -391,7 +391,9 @@ function Ota.startUpdateProcess(plugin_path_from_main)
             logger.info("Zlibrary:Ota.startUpdateProcess - User cancelled update.")
         end
     }
+    UIManager:setDirty("all", "full")
     UIManager:show(confirm_dialog)
+    UIManager:setDirty("all", "full")
 end
 
 return Ota
