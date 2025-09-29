@@ -213,7 +213,7 @@ function scraper(query)
 
     local url = string.format("%ssearch?page=%s&q=%s%s", annas_url, page, encoded_query, filters)
     
-    local status, data = check_url(url, "curl -s -S -o - ")
+    local status, data = check_url(url)
 
     if status == "no_curl" then
         return "Curl is not installed or not in PATH:" .. data
@@ -367,7 +367,7 @@ function download_book(book, path)
         
         if string.find(book.download, 'lgli', 1, true) then
             download_page = lgli_url .. "ads.php?md5=" .. book.md5
-            local status, data = check_url(download_page, "curl -s -L")
+            local status, data = check_url(download_page)
 
             if status == "no_curl" then
                 return "Failed, curl is not installed or not in PATH:" .. data
@@ -391,7 +391,7 @@ function download_book(book, path)
                     
                     if string.find(book.download, 'lgli', 1, true) then
                         download_page = lgli_url .. "ads.php?md5=" .. book.md5
-                        local status, data = check_url(download_page, "curl -s -L")
+                        local status, data = check_url(download_page)
             
                         if status == "no_curl" then
                             return "Failed, curl is not installed or not in PATH:" .. data
@@ -407,7 +407,7 @@ function download_book(book, path)
                                 local download_url = lgli_url .. download_link
                                 local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
             
-                                local status, data = check_url(download_url, curl_command )
+                                local status, data = check_url(download_url )
                                 print('data:\n', data)
                                 print('status:\n', status)
                                 print(filename)
@@ -428,7 +428,7 @@ function download_book(book, path)
                     local download_url = lgli_url .. download_link
                     local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
 
-                    local status, data = check_url(download_url, curl_command )
+                    local status, data = check_url(download_url )
                     print('data:\n', data)
                     print('status:\n', status)
                     print(filename)
