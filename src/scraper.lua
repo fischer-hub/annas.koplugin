@@ -1,4 +1,5 @@
 local Config = require("zlibrary.config")
+local Api = require('zlibrary.api')
 
 local function extract_md5_and_link(line)
     -- Match href="/md5/<md5hash>"
@@ -109,7 +110,7 @@ local function extract_description(line)
     return 'Could not retrieve description.'
 end
 
-function check_curl(url, command)
+--[[ function check_url_curl(url, command)
     -- Try to start curl
     local command = string.format('%s --connect-timeout 20 "%s"', command, url)
     print('executing command:\n', command)
@@ -132,7 +133,27 @@ function check_curl(url, command)
     end
 
     return "success", output
+end ]]
+
+function check_url(url)
+    local headers = {
+        ['Content-Type'] = 'text/html',
+        ["User-Agent"] = 'anna/7.81.0',
+    }
+    if user_id and user_key then
+        headers["Cookie"] = string.format("remix_userid=%s; remix_userkey=%s", user_id, user_key)
+    end
+
+    local http_result = Api.makeHttpRequest{
+        url = url,
+        method = "GET",
+        headers = headers,
+        timeout = 20,
+    }
+
+    return "success", http_result.body
 end
+
 
 function scraper(query)
 
@@ -192,7 +213,7 @@ function scraper(query)
 
     local url = string.format("%ssearch?page=%s&q=%s%s", annas_url, page, encoded_query, filters)
     
-    local status, data = check_curl(url, "curl -s -S -o - ")
+    local status, data = check_url(url, "curl -s -S -o - ")
 
     if status == "no_curl" then
         return "Curl is not installed or not in PATH:" .. data
@@ -346,7 +367,7 @@ function download_book(book, path)
         
         if string.find(book.download, 'lgli', 1, true) then
             download_page = lgli_url .. "ads.php?md5=" .. book.md5
-            local status, data = check_curl(download_page, "curl -s -L")
+            local status, data = check_url(download_page, "curl -s -L")
 
             if status == "no_curl" then
                 return "Failed, curl is not installed or not in PATH:" .. data
@@ -370,7 +391,7 @@ function download_book(book, path)
                     
                     if string.find(book.download, 'lgli', 1, true) then
                         download_page = lgli_url .. "ads.php?md5=" .. book.md5
-                        local status, data = check_curl(download_page, "curl -s -L")
+                        local status, data = check_url(download_page, "curl -s -L")
             
                         if status == "no_curl" then
                             return "Failed, curl is not installed or not in PATH:" .. data
@@ -386,7 +407,7 @@ function download_book(book, path)
                                 local download_url = lgli_url .. download_link
                                 local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
             
-                                local status, data = check_curl(download_url, curl_command )
+                                local status, data = check_url(download_url, curl_command )
                                 print('data:\n', data)
                                 print('status:\n', status)
                                 print(filename)
@@ -407,7 +428,7 @@ function download_book(book, path)
                     local download_url = lgli_url .. download_link
                     local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
 
-                    local status, data = check_curl(download_url, curl_command )
+                    local status, data = check_url(download_url, curl_command )
                     print('data:\n', data)
                     print('status:\n', status)
                     print(filename)
