@@ -7,6 +7,8 @@ This KOReader plugin lets you search and download documents from Anna's Archive.
 
 Big thanks and credits to the devs of the [KOReader Zlibrary plugin](https://github.com/ZlibraryKO/zlibrary.koplugin) which inspired a huge amount of the frontend code and UI for my plugin and to the devs of [KindleFetch](https://github.com/justrals/KindleFetch) which inspired much of my webscraping 'backend' code. Without these projects the plugin would probably not run at all yet lol.
 
+The plugin was tested on KOReader installed on a Kindle Paperwhite 11th generation.
+
 ## Installation
 
 1.  Download the latest release.

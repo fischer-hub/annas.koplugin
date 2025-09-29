@@ -5,6 +5,7 @@ local TextViewer = require("ui/widget/textviewer")
 local T = require("zlibrary.gettext")
 local DownloadMgr = require("ui/downloadmgr")
 local InputDialog = require("ui/widget/inputdialog")
+local ButtonDialog = require("ui/widget/buttondialog")
 local Menu = require("zlibrary.menu")
 local util = require("util")
 local logger = require("logger")
@@ -147,7 +148,7 @@ function Ui.showSettingsDialog()
     local foo, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
     local plugin_path, _ = foo:gsub("/zlibrary/", "")
 
-    dialog = InputDialog:new{
+    dialog = ButtonDialog:new{
         title = T("Settings"),
         input = def_input,
         buttons = {
