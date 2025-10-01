@@ -1,28 +1,24 @@
-name: Create Plugin Release
+# This GitHub Action workflow creates a clean .zip archive of the repository
+# when a new release is published. The root directory inside the archive will
+# match the repository name, without any version suffix.
+
+name: Create Clean Release ZIP
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - '*.lua'
-      - 'zlibrary/*.lua'
+  release:
+    types: [published] # This workflow runs only when you publish a release.
 
 jobs:
-  build-and-release:
+  create_zip_and_upload:
+    name: Create and Upload Release ZIP
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # This permission is required to upload assets to a release.
 
     steps:
-      - name: Install gettext tools
-        run: |
-          sudo apt install -y gettext
-
-      - name: Checkout code
+      - name: Checkout repository code
         uses: actions/checkout@v4
-
+        
       - name: Bump Version in _meta.lua
         id: bump_version
         run: |
@@ -66,210 +62,38 @@ jobs:
           echo "Successfully updated $META_FILE to version $NEW_VERSION"
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
         shell: bash
+        
 
-      - name: Set up plugin variables
-        id: plugin_vars
+      - name: Create ZIP Archive with Clean Root Directory
         run: |
-          PLUGIN_DIR="."
-          VERSION="${{ steps.bump_version.outputs.version }}"
-          echo "Using version for release: $VERSION"
-          echo "plugin_dir=$PLUGIN_DIR" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "zip_name=zlibrary_plugin_v${VERSION}.zip" >> "$GITHUB_OUTPUT"
-        shell: bash
-         
-      - name: Generate/Update POT file
-        run: |
-          POT_FILE="./l10n/koreader.pot"
-          echo "Generating or updating POT file: $POT_FILE"
-          mkdir -p "$(dirname "$POT_FILE")"
-          TEMP_LUA_FILES=$(find . -type f -name "*.lua" | sort)
-          if [ -z "$TEMP_LUA_FILES" ]; then
-            echo "No Lua files found!" >&2
-            exit 1
-          fi
-          echo "$TEMP_LUA_FILES" | xargs xgettext \
-            --language=Lua \
-            --from-code=UTF-8 \
-            --keyword=T \
-            --output="$POT_FILE"
-          echo "POT file successfully updated at $POT_FILE"
-      
-      - name: Update existing PO files
-        run: |
-          POT_FILE="./l10n/koreader.pot"
-          if [ -f "$POT_FILE" ]; then
-            find l10n -type f -name "*.po" -print0 | while IFS= read -r -d $'\0' po_file; do
-                echo "Updating: $po_file"
-                msgmerge --no-fuzzy-matching --no-location --no-wrap --backup=off --update "$po_file" "$POT_FILE"
-                if [ $? -ne 0 ]; then
-                    echo "Failed to update $po_file!"
-                fi
-                echo "Checking $po_file"
-                msgfmt --check-format --verbose "$po_file" || echo "Errors in $po_file"
-            done
-            echo "All .po files updated."
-          else
-            echo "POT file not found: $POT_FILE" >&2
-          fi
-
-      - name: List files to be zipped
-        id: list_files
-        run: |
-          echo "Looking for files in ${{ github.workspace }}/${{ steps.plugin_vars.outputs.plugin_dir }}"
-          cd "${{ github.workspace }}/${{ steps.plugin_vars.outputs.plugin_dir }}"
+          # 1. Get the repository name from the GitHub event context.
+          repo_name=${{ github.event.repository.name }}
           
-          # Initialize an empty list string
-          FILE_LINES=""
-
-          # Add .lua files from the root directory, prefixed with ./
-          # find will output nothing if no files are found.
-          # Using -type f to ensure we only get files.
-          TEMP_ROOT_LUA_FILES=$(find . -maxdepth 1 -type f -name '*.lua' -printf './%f\\n')
-          if [ -n "$TEMP_ROOT_LUA_FILES" ]; then
-            FILE_LINES="${TEMP_ROOT_LUA_FILES}"
-          fi
+          # 2. Create a new directory with the repository's name. This will become the root folder in the archive.
+          mkdir $repo_name
           
-          # Add .lua files from the zlibrary subdirectory, prefixed with ./zlibrary/
-          if [ -d "zlibrary" ]; then
-            TEMP_ZLIB_LUA_FILES=$(find ./zlibrary -maxdepth 1 -type f -name '*.lua' -printf './zlibrary/%f\\n')
-            if [ -n "$TEMP_ZLIB_LUA_FILES" ]; then
-              FILE_LINES="${FILE_LINES}${TEMP_ZLIB_LUA_FILES}"
-            fi
-          else
-            echo "Info: 'zlibrary' directory not found. Skipping files from 'zlibrary'."
-          fi
+          # 3. Enable 'dotglob' to ensure hidden files (like .gitignore) are included.
+          shopt -s dotglob
           
-          # Add .po files
-          if [ -d "l10n" ]; then
-             TEMP_ZLIB_PO_FILES=$(find ./l10n -maxdepth 2 -type f \( -name '*.po' -o -name '*.pot' \))
-             if [ -n "$TEMP_ZLIB_PO_FILES" ]; then
-               FILE_LINES="${FILE_LINES}${TEMP_ZLIB_PO_FILES}"$'\n'
-             fi
-          else
-            echo "Info: 'l10n' directory not found. Skipping files from 'l10n'."
-          fi
-
-          # Add README*.md *.md if it exists and is a file
-          while IFS= read -r -d $'\0' md_file; do
-            if [ -f "$md_file" ]; then
-              FILE_LINES="${FILE_LINES}${md_file}"$'\n'
-            fi
-          done < <(find . -maxdepth 2 -type f -name '*.md' -print0)
+          # 4. Move all the repository content into the new directory.
+          mv ./* $repo_name/
           
-          # Add LICENSE if it exists and is a file
-          if [ -f "LICENSE" ]; then
-            FILE_LINES="${FILE_LINES}./LICENSE\\n"
-          fi
+          # 5. Create the zip file from the new directory. The '-r' flag makes it recursive.
+          zip -r ${repo_name}.zip $repo_name
 
-          # Remove any blank lines from the list and trim whitespace from each line.
-          # awk 'NF' prints lines that have at least one non-whitespace character.
-          PROCESSED_FILES_LIST=$(echo -e "${FILE_LINES}" | awk 'NF')
-
-          if [ -z "$PROCESSED_FILES_LIST" ]; then
-            echo "Error: No .lua files, README.md or LICENSE found in the plugin directory ('${{ steps.plugin_vars.outputs.plugin_dir }}') or its 'zlibrary' subdirectory."
-            echo "::error title=No files to zip::No .lua files, README.md or LICENSE found in '${{ steps.plugin_vars.outputs.plugin_dir }}' or its 'zlibrary' subdirectory. Workflow cannot proceed to create zip."
-            exit 1
-          fi
-          
-          echo "Files to be zipped (one per line):"
-          echo "${PROCESSED_FILES_LIST}" # For logging
-          
-          # Correctly output for GITHUB_OUTPUT using heredoc style
-          # This ensures the multi-line string is preserved.
-          {
-            echo "files_list<<EOF"
-            echo "${PROCESSED_FILES_LIST}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          
-          cd "$GITHUB_WORKSPACE" # Go back to workspace root
-        shell: bash
-
-      - name: Create plugin zip archive
-        run: |
-          echo "Creating zip file: ${{ steps.plugin_vars.outputs.zip_name }}"
-          echo "Files to include (will be placed in plugins/zlibrary.koplugin/ within the zip):"
-          echo "${{ steps.list_files.outputs.files_list }}"
-
-          # Define staging and target paths. All paths are relative to GITHUB_WORKSPACE.
-          STAGING_DIR="zip_staging" # Relative to GITHUB_WORKSPACE
-          TARGET_IN_ZIP_PATH="plugins/zlibrary.koplugin"
-          FULL_TARGET_STAGING_PATH="$STAGING_DIR/$TARGET_IN_ZIP_PATH" # Relative to GITHUB_WORKSPACE
-
-          # Clean up any previous staging directory and create the new one
-          rm -rf "$STAGING_DIR"
-          mkdir -p "$FULL_TARGET_STAGING_PATH"
-
-          # Copy listed files into the target staging path
-          echo "${{ steps.list_files.outputs.files_list }}" | while IFS= read -r file_path; do
-            # file_path is like ./main.lua or ./zlibrary/api.lua (relative to GITHUB_WORKSPACE)
-            if [ -z "$file_path" ]; then continue; fi # Skip empty lines
-
-            SOURCE_FILE_PATH="${{ github.workspace }}/${file_path#./}" 
-
-            if [ -f "$SOURCE_FILE_PATH" ]; then
-              # cleaned_file_path is like main.lua or zlibrary/api.lua
-              cleaned_file_path="${file_path#./}"
-              DEST_FILE_PATH="$FULL_TARGET_STAGING_PATH/$cleaned_file_path"
-
-              # Create the parent directory for the destination file if it doesn't exist
-              mkdir -p "$(dirname "$DEST_FILE_PATH")"
-              
-              cp "$SOURCE_FILE_PATH" "$DEST_FILE_PATH"
-              echo "Copied $SOURCE_FILE_PATH to $DEST_FILE_PATH"
-            else
-              echo "Warning: File $SOURCE_FILE_PATH (from entry '$file_path') not found, skipping."
-            fi
-          done
-
-          # Go into the staging directory to create the zip with the correct internal structure
-          cd "$STAGING_DIR"
-
-          # Create the zip. 'plugins' is the top-level directory in staging to be zipped.
-          # The zip file itself will be created in GITHUB_WORKSPACE because of the ../
-          zip -r "../${{ steps.plugin_vars.outputs.zip_name }}" plugins
-
-          # Go back to the original workspace directory
-          cd "${{ github.workspace }}"
-
-          # Clean up the staging directory
-          rm -rf "$STAGING_DIR"
-
-          echo "Zip file created at ${{ github.workspace }}/${{ steps.plugin_vars.outputs.zip_name }}"
-          echo "Verify zip contents:"
-          unzip -l "${{ github.workspace }}/${{ steps.plugin_vars.outputs.zip_name }}"
-        shell: bash
-
-      - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v2
+      - name: Upload ZIP Archive to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: v${{ steps.plugin_vars.outputs.version }}-${{ github.sha }}
-          name: zlibrary.koplugin v${{ steps.plugin_vars.outputs.version }}
-          draft: false
-          prerelease: false
-          files: ./${{ steps.plugin_vars.outputs.zip_name }}
-
-      - name: Commit and Push l10n _meta.lua changes
-        run: |
-          echo "Preparing to commit _meta.lua version bump..."
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          # The URL for uploading assets to the release that triggered this workflow.
+          upload_url: ${{ github.event.release.upload_url }} 
           
-          PLUGIN_META_FILE="${{ steps.plugin_vars.outputs.plugin_dir }}/_meta.lua"
-          git add "$PLUGIN_META_FILE"
-
-          git add "${{ steps.plugin_vars.outputs.plugin_dir }}/l10n/"
+          # The path to the zip file we just created.
+          asset_path: ./${{ github.event.repository.name }}.zip
           
-          # Check if there are changes to commit
-          if git diff --staged --quiet; then
-            echo "No changes to $PLUGIN_META_FILE or l10n to commit."
-          else
-            echo "Committing updated $PLUGIN_META_FILE with version ${{ steps.bump_version.outputs.version }}"
-            git commit -m "chore: Bump version to ${{ steps.bump_version.outputs.version }} [skip ci]"
-            echo "Pushing changes to master..."
-            git push
-            echo "Changes pushed."
-          fi
-        shell: bash
+          # The name for the asset file on the release page.
+          asset_name: ${{ github.event.repository.name }}.zip
+          
+          # The content type of the asset.
+          asset_content_type: application/zip
