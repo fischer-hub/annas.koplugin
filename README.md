@@ -11,7 +11,7 @@ The plugin was tested on KOReader installed on a Kindle Paperwhite 11th generati
 
 ## Installation
 
-1.  Download the latest release.
+1.  Download the [latest release](https://github.com/fischer-hub/annas.koplugin/releases/latest).
 2.  Extract the `annas.koplugin-*x.x.x.zip` file and rename remove the version number from the directory name if it has one, e.g.: `annas.koplugin-0.1.5` -> `annas.koplugin`.
 3.  Copy the `annas.koplugin` directory to the `koreader/plugins` folder on your device.
 4.  Restart KOReader.
