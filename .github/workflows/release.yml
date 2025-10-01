@@ -48,7 +48,7 @@ jobs:
           MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
           PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
           NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          NEW_VERSION="${{ github.event.release.tag_name }}"
 
           echo "Current version: $CURRENT_VERSION -> New version: $NEW_VERSION"
 
@@ -76,10 +76,10 @@ jobs:
           shopt -s dotglob
           
           # 4. Move all the repository content into the new directory.
-          mv ./* $repo_name/
+          # mv ./* $repo_name/
           
           # 5. Create the zip file from the new directory. The '-r' flag makes it recursive.
-          zip -r ${repo_name}.zip $repo_name
+          zip -r ${repo_name}.zip ./*
 
       - name: Upload ZIP Archive to Release
         uses: actions/upload-release-asset@v1
@@ -97,3 +97,4 @@ jobs:
           
           # The content type of the asset.
           asset_content_type: application/zip
+
