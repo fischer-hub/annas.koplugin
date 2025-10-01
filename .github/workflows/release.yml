@@ -76,7 +76,7 @@ jobs:
           shopt -s dotglob extglob
           
           # 4. Move all the repository content into the new directory.
-          mv !($repo_name) $repo_name/
+          mv !($repo_name|assets) $repo_name/
           
           # 5. Create the zip file from the new directory. The '-r' flag makes it recursive.
           zip -9 -r ${repo_name}-${{github.event.release.tag_name}}.zip $repo_name/
@@ -97,6 +97,7 @@ jobs:
           
           # The content type of the asset.
           asset_content_type: application/zip
+
 
 
 
