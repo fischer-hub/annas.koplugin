@@ -151,7 +151,32 @@ function check_url(url)
         timeout = 20,
     }
 
-    return "success", http_result.body
+    -- Check if the API returned something valid
+    if not http_result then
+        print('network error in check_url(), API didnt return valid value')
+        return "network_error", nil
+    end
+
+    -- Now interpret the status
+    if http_result.status_code == 200 then
+        print('success in check_url()')
+        return "success", http_result.body
+    elseif http_result.status_code == 408 then
+        print('timeout in check_url()', http_result.status_code)
+        return "timeout", nil
+    elseif http_result.status_code == 502 or http_result.status_code == 504 then
+        print('bad gateway in check_url()', http_result.status_code)
+        return "bad_gateway", nil
+    elseif http_result.status_code >= 400 and http_result.status_code < 500 then
+        print('client error in check_url()', http_result.status_code)
+        return "client_error_" .. tostring(http_result.status_code), nil
+    elseif http_result.status_code >= 500 then
+        print('server error in check_url()', http_result.status_code)
+        return "server_error_" .. tostring(http_result.status_code), nil
+    else
+        print('unknown error in check_url()', http_result.status_code)
+        return "unknown_error_" .. tostring(http_result.status_code), nil
+    end
 end
 
 
@@ -343,6 +368,23 @@ function sanitize_name(name)
     return sanitized
 end
 
+
+function save_file_bytes(path, bytes)
+
+    local f, err = io.open(path, "wb")         -- open binary
+    if not f then 
+        return nil, "open failed: "..tostring(err) 
+    end
+
+    local ok, werr = f:write(bytes)
+    f:close()
+    if not ok then 
+        return nil, "write failed: "..tostring(werr) 
+    end
+
+    return true, "saved file to: " .. path
+end
+
 function download_book(book, path)
 
     local lgli_exts = {
@@ -408,9 +450,11 @@ function download_book(book, path)
                                 local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
             
                                 local status, data = check_url(download_url )
-                                print('data:\n', data)
+                                --print('data:\n', data)
                                 print('status:\n', status)
                                 print(filename)
+                                local status, msg = save_file_bytes(filename, data)
+                                print(msg)
                                 return filename
             
                             else
@@ -429,9 +473,11 @@ function download_book(book, path)
                     local curl_command = "curl -# -L -o" .. "\"" .. filename .. "\""
 
                     local status, data = check_url(download_url )
-                    print('data:\n', data)
+                    --print('data:\n', data)
                     print('status:\n', status)
                     print(filename)
+                    local status, msg = save_file_bytes(filename, data)
+                    print(msg)
                     return filename
 
                 else
