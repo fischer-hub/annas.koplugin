@@ -42,7 +42,7 @@ local function _show_ota_final_message(text, is_error)
     end
 end
 
-local function getCurrentPluginVersion(plugin_base_path)
+function Ota.getCurrentPluginVersion(plugin_base_path)
     local meta_file_full_path = plugin_base_path .. "/_meta.lua"
     logger.info("Zlibrary:Ota.getCurrentPluginVersion - Attempting to load version via dofile from: " .. meta_file_full_path)
 
@@ -322,7 +322,7 @@ function Ota.startUpdateProcess(plugin_path_from_main)
     local release_msg = release_info.body:match("([^%.]*)")
     local asset_name = "annas_plugin_update.zip"
 
-    local current_version = getCurrentPluginVersion(plugin_path_from_main)
+    local current_version = Ota.getCurrentPluginVersion(plugin_path_from_main)
     if not current_version then
         logger.warn("Zlibrary:Ota.startUpdateProcess - Could not determine current plugin version. Proceeding with update check, but comparison might be skipped.")
     end

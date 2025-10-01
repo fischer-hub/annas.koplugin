@@ -80,7 +80,7 @@ jobs:
           mv !($repo_name) $repo_name/
           
           # 5. Create the zip file from the new directory. The '-r' flag makes it recursive.
-          zip -9 -r ${repo_name}.zip $repo_name/
+          zip -9 -r ${repo_name}-{{github.event.release.tag_name}}.zip $repo_name/
 
       - name: Upload ZIP Archive to Release
         uses: actions/upload-release-asset@v1
@@ -91,10 +91,10 @@ jobs:
           upload_url: ${{ github.event.release.upload_url }} 
           
           # The path to the zip file we just created.
-          asset_path: ./${{ github.event.repository.name }}.zip
+          asset_path: ./${{ github.event.repository.name }}-{{github.event.release.tag_name}}.zip
           
           # The name for the asset file on the release page.
-          asset_name: ${{ github.event.repository.name }}.zip
+          asset_name: ${{ github.event.repository.name }}-{{github.event.release.tag_name}}.zip
           
           # The content type of the asset.
           asset_content_type: application/zip

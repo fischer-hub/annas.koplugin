@@ -40,18 +40,23 @@ function Zlibrary:init()
         full_source_path = full_source_path:sub(2)
     end
     self.plugin_path, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
-
+    
     Config.loadCredentialsFromFile(self.plugin_path)
-
+    
+    local current_version = Ota.getCurrentPluginVersion(self.plugin_path)
+    
     self.dialog_manager = DialogManager:new()
     Ui.setPluginInstance(self)
-
+    
     self:onDispatcherRegisterActions()
     if self.ui and self.ui.menu then
         self.ui.menu:registerToMainMenu(self)
     else
         logger.warn("self.ui or self.ui.menu not initialized in Zlibrary:init")
     end
+
+    logger.info(string.format("Zlibrary: Init successful, version is: ", current_version))
+
 end
 
 function Zlibrary:onZlibrarySearch()
