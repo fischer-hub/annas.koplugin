@@ -105,6 +105,7 @@ function Api.makeHttpRequest(options)
            string.find(error_msg, "connection") or
            string.find(error_msg, "sink timeout") then
             result.error = T("Request timed out - please check your connection and try again")
+            r_code = 408
         else
             result.error = T("Network request failed") .. ": " .. error_msg
         end

@@ -157,6 +157,8 @@ function check_url(url)
         return "network_error", nil
     end
 
+    http_result.status_code = tonumber(http_result.status_code)
+
     -- Now interpret the status
     if http_result.status_code == 200 then
         print('success in check_url()')
