@@ -157,6 +157,14 @@ function check_url(url)
         return "network_error", nil
     end
 
+    if not http_result.status_code then
+        if http_result.error then
+            return tostring(http_result.error), nil
+        else
+            return "HTTP request returned invalid result", nil
+        end
+    end
+
     http_result.status_code = tonumber(http_result.status_code)
 
     -- Now interpret the status
@@ -411,6 +419,7 @@ function download_book(book, path)
         
         if string.find(book.download, 'lgli', 1, true) then
             download_page = lgli_url .. "ads.php?md5=" .. book.md5
+            print('download page on lgli: ', download_page)
             local status, data = check_url(download_page)
 
             if status == "no_curl" then

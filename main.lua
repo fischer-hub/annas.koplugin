@@ -55,7 +55,7 @@ function Zlibrary:init()
         logger.warn("self.ui or self.ui.menu not initialized in Zlibrary:init")
     end
 
-    logger.info(string.format("Zlibrary: Init successful, version is: ", current_version))
+    logger.info(string.format("Zlibrary: Init successful, version is: %s", current_version))
 
 end
 
