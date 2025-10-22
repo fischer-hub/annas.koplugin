@@ -1,6 +1,18 @@
 local Config = require("zlibrary.config")
 local Api = require('zlibrary.api')
 
+-- Proper URL encoding for safe HTTP requests
+local function urlencode(str)
+    if not str then return "" end
+    str = tostring(str)
+    str = str:gsub("\n", "\r\n")
+    -- Encode everything except: A-Z a-z 0-9 - _ . ~
+    str = str:gsub("([^%w%-_%.~])", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
+    return str
+end
+
 local function extract_md5_and_link(line)
     -- Match href="/md5/<md5hash>"
     -- href="\/md5\/[a-f0-9]{32}"/
@@ -212,7 +224,9 @@ function scraper(query)
 
     print('got query: ', query)
 
-    local encoded_query = string.gsub(query, " ", "+")
+    --local encoded_query = string.gsub(query, " ", "+")
+    --URL fix
+    local encoded_query = urlencode(query)
     local languages = Config.getSearchLanguages()
     local ext = Config.getSearchExtensions()
     local order = Config.getSearchOrder()
