@@ -229,6 +229,25 @@ local function command_exists(cmd)
     return result and result ~= ""
 end
 
+-- Percent-encode a search query for safe use in a URL query string. Anything
+-- outside RFC 3986 unreserved characters is escaped, which also neutralizes
+-- shell metacharacters (quotes, backticks, $, ;, &, ...) a query might contain.
+local function url_encode(str)
+    if not str then return "" end
+    str = str:gsub("([^%w%-%_%.%~ ])", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
+    return str:gsub(" ", "+")
+end
+
+-- Safely quote a string (URL, file path, ...) for embedding as a single shell
+-- argument, regardless of its content. URLs here can come from a user's
+-- search query or from a third-party mirror's HTML (download links), so this
+-- must not rely on that content already being "safe" by construction.
+local function shell_quote(str)
+    return "'" .. tostring(str):gsub("'", "'\\''") .. "'"
+end
+
 -- Pure Lua HTTP implementation using LuaSocket (fallback method)
 local function fetch_with_lua_socket(url)
     print('=== Trying pure Lua socket for URL:', url)
@@ -241,7 +260,12 @@ local function fetch_with_lua_socket(url)
         print('=== LuaSocket not available')
         return "no_socket", nil
     end
-    
+
+    -- Every other fetch tier bounds its request (curl --max-time, wget --timeout,
+    -- Api's socketutil timeout); without this, a stalled connection here can hang
+    -- far longer than the OS default before falling through to the next tier/mirror.
+    http.TIMEOUT = 20
+
     local response_body = {}
     local res, code, response_headers, status = http.request{
         url = url,
@@ -272,7 +296,7 @@ local function fetch_with_external_command(url)
     if command_exists("curl") then
         print('=== Using curl')
         local http_code_marker = "___CURL_HTTP_CODE___:"
-        local handle = io.popen('curl -L -s --max-time 20 -w "' .. http_code_marker .. '%{http_code}" "' .. url .. '" 2>&1')
+        local handle = io.popen('curl -L -s --max-time 20 -w "' .. http_code_marker .. '%{http_code}" ' .. shell_quote(url) .. ' 2>&1')
         if handle then
             local raw = handle:read("*a")
             local success = handle:close()
@@ -294,7 +318,7 @@ local function fetch_with_external_command(url)
     if command_exists("wget") then
         print('=== Using wget')
         local temp_file = os.tmpname()
-        local cmd = string.format('wget -q -O "%s" --timeout=10 "%s" 2>&1', temp_file, url)
+        local cmd = string.format('wget -q -O %s --timeout=10 %s 2>&1', shell_quote(temp_file), shell_quote(url))
         local handle = io.popen(cmd)
         if handle then
             handle:close()
@@ -437,7 +461,7 @@ function scraper(query)
 
     print('got query: ', query)
 
-    local encoded_query = string.gsub(query, " ", "+")
+    local encoded_query = url_encode(query)
     local languages = Config and Config.getSearchLanguages() or {}
     local ext = Config and Config.getSearchExtensions() or {}
     local order = Config and Config.getSearchOrder() or {}
@@ -504,6 +528,15 @@ function scraper(query)
 
         if data:find(ddos_guard_needle, 1, true) then
             print("=== DDoS guard triggered, trying different mirror ...")
+            goto retry
+        end
+
+        -- Safety net: catch generic server/gateway error pages (e.g. nginx's default
+        -- "500 Internal Server Error") regardless of which fetch method served them or
+        -- whether it already checked the HTTP status code itself.
+        local http_error_code = data:match('<title>%s*(%d%d%d)%s+[^<]*</title>')
+        if http_error_code and tonumber(http_error_code) >= 400 then
+            print("=== Got HTTP error page (" .. http_error_code .. "), trying different mirror ...")
             goto retry
         end
 

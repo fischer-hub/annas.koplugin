@@ -27,6 +27,34 @@ local Annas = WidgetContainer:extend{
     dialog_manager = nil,
 }
 
+-- Versions before the annas/ rename shipped a "zlibrary" subfolder and a
+-- zlibrary_credentials.lua file under the same names as the (unrelated)
+-- zlibrary.koplugin project, which caused module/setting collisions when
+-- both plugins were installed. A manual copy-over update (rather than the
+-- in-app updater, which replaces the whole plugin folder) can leave those
+-- files behind, so sweep them up on startup.
+local function cleanupLegacyZlibraryFiles(plugin_path)
+    -- Sanity-check plugin_path before doing anything destructive with it: if
+    -- path detection ever misbehaves, this must fail safe (do nothing) rather
+    -- than rm -rf some unintended directory.
+    if not (plugin_path and plugin_path:match("annas%.koplugin/?$")) then
+        logger.warn("Annas: Skipping legacy file cleanup, unexpected plugin_path: " .. tostring(plugin_path))
+        return
+    end
+
+    local legacy_dir = plugin_path .. "zlibrary"
+    if lfs.attributes(legacy_dir, "mode") == "directory" then
+        logger.info("Annas: Removing leftover 'zlibrary' directory from a pre-rename version: " .. legacy_dir)
+        os.execute(string.format("rm -rf '%s'", legacy_dir))
+    end
+
+    local legacy_credentials = plugin_path .. "zlibrary_credentials.lua"
+    if lfs.attributes(legacy_credentials, "mode") == "file" then
+        logger.info("Annas: Removing leftover legacy file: " .. legacy_credentials)
+        os.remove(legacy_credentials)
+    end
+end
+
 function Annas:onDispatcherRegisterActions()
     Dispatcher:registerAction("annas_search", { category="none", event="AnnasSearch", title=T("Anna's Archive search"), general=true,})
 end
@@ -37,6 +65,9 @@ function Annas:init()
         full_source_path = full_source_path:sub(2)
     end
     self.plugin_path, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
+
+    cleanupLegacyZlibraryFiles(self.plugin_path)
+    Config.migrateLegacySettings()
 
     local current_version = Ota.getCurrentPluginVersion(self.plugin_path)
 

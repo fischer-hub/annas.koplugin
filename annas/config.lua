@@ -12,37 +12,40 @@ Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY = "annas_turn_off_wifi_after_do
 Config.DEFAULT_DOWNLOAD_DIR_FALLBACK = G_reader_settings:readSetting("home_dir")
              or require("apps/filemanager/filemanagerutil").getDefaultDir()
 
+-- Anna's Archive uses ISO 639-1 / BCP-47 language codes (see the `lang`
+-- query parameter in the search form). Unknown values are silently ignored
+-- by the server, which makes the filter appear to do nothing.
 Config.SUPPORTED_LANGUAGES = {
-    { name = "العربية", value = "arabic" },
-    { name = "Հայերեն", value = "armenian" },
-    { name = "Azərbaycanca", value = "azerbaijani" },
-    { name = "বাংলা", value = "bengali" },
-    { name = "简体中文", value = "chinese" },
-    { name = "Nederlands", value = "dutch" },
+    { name = "العربية", value = "ar" },
+    { name = "Հայերեն", value = "hy" },
+    { name = "Azərbaycanca", value = "az" },
+    { name = "বাংলা", value = "bn" },
+    { name = "简体中文", value = "zh" },
+    { name = "Nederlands", value = "nl" },
     { name = "English", value = "en" },
     { name = "Français", value = "fr" },
-    { name = "ქართული", value = "georgian" },
+    { name = "ქართული", value = "ka" },
     { name = "Deutsch", value = "de" },
-    { name = "Ελληνικά", value = "greek" },
-    { name = "हिन्दी", value = "hindi" },
-    { name = "Bahasa Indonesia", value = "indonesian" },
-    { name = "Italiano", value = "italian" },
-    { name = "日本語", value = "japanese" },
-    { name = "한국어", value = "korean" },
-    { name = "Bahasa Malaysia", value = "malaysian" },
-    { name = "پښتو", value = "pashto" },
-    { name = "Polski", value = "polish" },
-    { name = "Português", value = "portuguese" },
-    { name = "Русский", value = "russian" },
-    { name = "Српски", value = "serbian" },
-    { name = "Español", value = "sp" },
-    { name = "తెలుగు", value = "telugu" },
-    { name = "ไทย", value = "thai" },
-    { name = "繁體中文", value = "traditional chinese" },
-    { name = "Türkçe", value = "turkish" },
-    { name = "Українська", value = "ukrainian" },
-    { name = "اردو", value = "urdu" },
-    { name = "Tiếng Việt", value = "vietnamese" },
+    { name = "Ελληνικά", value = "el" },
+    { name = "हिन्दी", value = "hi" },
+    { name = "Bahasa Indonesia", value = "id" },
+    { name = "Italiano", value = "it" },
+    { name = "日本語", value = "ja" },
+    { name = "한국어", value = "ko" },
+    { name = "Bahasa Malaysia", value = "ms" },
+    { name = "پښتو", value = "ps" },
+    { name = "Polski", value = "pl" },
+    { name = "Português", value = "pt" },
+    { name = "Русский", value = "ru" },
+    { name = "Српски", value = "sr" },
+    { name = "Español", value = "es" },
+    { name = "తెలుగు", value = "te" },
+    { name = "ไทย", value = "th" },
+    { name = "繁體中文", value = "zh-Hant" },
+    { name = "Türkçe", value = "tr" },
+    { name = "Українська", value = "uk" },
+    { name = "اردو", value = "ur" },
+    { name = "Tiếng Việt", value = "vi" },
 }
 
 Config.SUPPORTED_EXTENSIONS = {
@@ -125,6 +128,31 @@ end
 
 function Config.setTurnOffWifiAfterDownload(turn_off)
     Config.saveSetting(Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY, turn_off)
+end
+
+-- Pre-rename versions stored these under zlibrary_* keys, which collided with
+-- the unrelated zlibrary.koplugin's own settings. Copy any value forward to
+-- the new annas_* key (once) so users don't silently lose their preferences
+-- on update. The old key is deliberately left untouched rather than deleted:
+-- since it was shared/colliding, we can't be sure it isn't still in use by
+-- that other plugin if it's also installed.
+local LEGACY_SETTINGS_KEY_MAP = {
+    zlibrary_search_languages = Config.SETTINGS_SEARCH_LANGUAGES_KEY,
+    zlibrary_search_extensions = Config.SETTINGS_SEARCH_EXTENSIONS_KEY,
+    zlibrary_search_order = Config.SETTINGS_SEARCH_ORDERS_KEY,
+    zlibrary_download_dir = Config.SETTINGS_DOWNLOAD_DIR_KEY,
+    zlibrary_turn_off_wifi_after_download = Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY,
+}
+
+function Config.migrateLegacySettings()
+    for old_key, new_key in pairs(LEGACY_SETTINGS_KEY_MAP) do
+        if G_reader_settings:readSetting(new_key) == nil then
+            local old_value = G_reader_settings:readSetting(old_key)
+            if old_value ~= nil then
+                Config.saveSetting(new_key, old_value)
+            end
+        end
+    end
 end
 
 return Config
