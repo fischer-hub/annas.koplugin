@@ -1,5 +1,9 @@
-local Config = require("zlibrary.config")
-local Api = require('zlibrary.api')
+-- Config/Api depend on KOReader-only modules (util, G_reader_settings, socket.http),
+-- so fall back gracefully when this file is run standalone outside the plugin.
+local Config_ok, Config = pcall(require, "annas.config")
+if not Config_ok then Config = nil end
+local Api_ok, Api = pcall(require, "annas.api")
+if not Api_ok then Api = nil end
 
 -- Cache configuration
 local CACHE_FILE = "annas_domains_cache.txt"
@@ -267,13 +271,21 @@ local function fetch_with_external_command(url)
     -- Try curl first (most reliable)
     if command_exists("curl") then
         print('=== Using curl')
-        local handle = io.popen('curl -L -s --max-time 20 "' .. url .. '" 2>&1')
+        local http_code_marker = "___CURL_HTTP_CODE___:"
+        local handle = io.popen('curl -L -s --max-time 20 -w "' .. http_code_marker .. '%{http_code}" "' .. url .. '" 2>&1')
         if handle then
-            local result = handle:read("*a")
+            local raw = handle:read("*a")
             local success = handle:close()
+            local body, http_code_str = raw:match("^(.*)" .. http_code_marker .. "(%d+)$")
+            local result = body or raw
+            local http_code = tonumber(http_code_str)
             if success and result and #result > 0 then
-                print('=== curl succeeded, got', #result, 'bytes')
-                return "success", result
+                if http_code and http_code ~= 200 then
+                    print('=== curl got HTTP', http_code, '- treating as failure, trying next method/mirror')
+                else
+                    print('=== curl succeeded, got', #result, 'bytes')
+                    return "success", result
+                end
             end
         end
     end
@@ -282,7 +294,7 @@ local function fetch_with_external_command(url)
     if command_exists("wget") then
         print('=== Using wget')
         local temp_file = os.tmpname()
-        local cmd = string.format('wget -q -O "%s" --timeout=20 "%s" 2>&1', temp_file, url)
+        local cmd = string.format('wget -q -O "%s" --timeout=10 "%s" 2>&1', temp_file, url)
         local handle = io.popen(cmd)
         if handle then
             handle:close()
@@ -304,11 +316,15 @@ end
 
 -- Try KOReader's API with multiple header configurations
 local function fetch_with_api(url)
+    if not Api then
+        print('=== Api.makeHttpRequest not available (running outside KOReader)')
+        return "api_unavailable", nil
+    end
+
     print('=== Trying Api.makeHttpRequest for:', url)
-    
-    local user_session = Config.getUserSession()
+
     local hostname = url:match("://([^/]+)")
-    
+
     -- Try different header configurations for compatibility
     local header_configs = {
         -- Minimal headers
@@ -321,7 +337,7 @@ local function fetch_with_api(url)
             ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             ["Accept-Language"] = "en-US,en;q=0.5",
         },
-        -- Full headers with session
+        -- Full headers with hostname
         {
             ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -329,22 +345,16 @@ local function fetch_with_api(url)
             ["Host"] = hostname,
         }
     }
-    
+
     for i, headers in ipairs(header_configs) do
         print('=== API attempt', i, 'with', #headers, 'headers')
-        
-        -- Add session cookie if available
-        if user_session and user_session.user_id and user_session.user_key then
-            headers["Cookie"] = string.format("remix_userid=%s; remix_userkey=%s", 
-                                             user_session.user_id, user_session.user_key)
-        end
-        
+
         local success, http_result = pcall(function()
             return Api.makeHttpRequest{
                 url = url,
                 method = "GET",
                 headers = headers,
-                timeout = 20,
+                timeout = 10,
             }
         end)
         
@@ -428,9 +438,9 @@ function scraper(query)
     print('got query: ', query)
 
     local encoded_query = string.gsub(query, " ", "+")
-    local languages = Config.getSearchLanguages()
-    local ext = Config.getSearchExtensions()
-    local order = Config.getSearchOrder()
+    local languages = Config and Config.getSearchLanguages() or {}
+    local ext = Config and Config.getSearchExtensions() or {}
+    local order = Config and Config.getSearchOrder() or {}
     local src = 'lgli'
     local filters = ''
 

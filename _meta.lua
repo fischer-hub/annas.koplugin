@@ -1,6 +1,5 @@
-local T = require("zlibrary.gettext")
+local T = require("annas.gettext")
 return {
-    name = "annas",
     fullname = T("Anna's Archive"),
     description = T("[[A plugin to search and download books from Anna's Archive.]]"),
     version = "0.1.8",
