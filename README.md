@@ -26,8 +26,9 @@ The plugin was tested on KOReader installed on a Kindle Paperwhite 11th generati
 5.  Under Search Results click on the entry you are interested in.
 6.  Finally hit `Format: (tap to download)` and confirm again by tapping `Download`.
 
-## DNS Settings
-
+## DNS Settings (Advanced)
+<details>
+<summary>Click to reveal</summary>
 **On some devices, you may need to change your DNS provider to 1.1.1.1 (Cloudflare).**
 
 You only need to do this if Anna’s Archive repeatedly does not work, for example:
@@ -165,3 +166,4 @@ and follow the instructions for your specific router.
 ## Keywords
 
 KOReader, Z-library, e-reader, plugin, ebook, download, KOReader plugin, Z-library integration, digital library, e-ink, bookworm, reading, open source.
+</details>
