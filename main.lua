@@ -121,7 +121,15 @@ function Annas:performSearch(query)
     end
 
     local function on_success_search(res)
-        if type(res) ~= "table" or #res == 0 then
+        if type(res) ~= "table" then
+            -- scraper() failed outright (e.g. every mirror unreachable/blocked)
+            -- and returned a message describing why, instead of results.
+            logger.warn("Annas:performSearch - Search failed: " .. tostring(res))
+            Ui.showErrorMessage(tostring(res))
+            return
+        end
+
+        if #res == 0 then
             Ui.showInfoMessage(T("No results found for \"") .. query .. "\".")
             return
         end

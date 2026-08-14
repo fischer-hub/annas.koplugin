@@ -127,25 +127,13 @@ local function get_annas_archive_domains()
         print("=== Using cached domains (age:", age_hours, "hours)")
         return cached_domains
     end
-    
-    -- If cache is unavailable, fetch from Wikipedia
-    local domains = fetch_domains_from_wikipedia()
-    
-    if domains and #domains > 0 then
-        return domains
-    end
-    
-    -- Fallback: default domains if Wikipedia fails
-    print("=== Warning: Using fallback domains")
-    return {
-        "annas-archive.li",
-        "annas-archive.gl",
-        "annas-archive.org",
-        "annas-archive.se",
-        "annas-archive.gs",
-        "annas-archive.pm",
-        "annas-archive.in",
-    }
+
+    -- If cache is unavailable, fetch fresh domains from Wikipedia. Deliberately
+    -- no hardcoded fallback list here: a static domain name can go stale and
+    -- get taken over by someone else long after Anna's Archive stops using
+    -- it, so the Wikipedia-sourced list - reflecting whatever mirrors are
+    -- actually current - is the only source of truth for what to trust.
+    return fetch_domains_from_wikipedia() or {}
 end
 
 
@@ -248,6 +236,53 @@ local function shell_quote(str)
     return "'" .. tostring(str):gsub("'", "'\\''") .. "'"
 end
 
+-- Anna's Archive mirrors sit behind anti-bot/WAF checks (DDoS-Guard, Cloudflare)
+-- that can 403 requests lacking a convincing browser fingerprint - curl's bare
+-- default (literally "curl/8.x") or a truncated User-Agent are both common
+-- triggers for a 403 a real browser never sees for the same URL. Every fetch
+-- tier below sends this same realistic, complete header set.
+local BROWSER_HEADERS = {
+    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    ["Accept-Language"] = "en-US,en;q=0.9",
+}
+
+-- Build a headers table's worth of curl -H (or wget --header=) flags, so
+-- each fetch tier's request-building code doesn't restate every header by hand.
+local function curl_header_args(headers)
+    local args = {}
+    for key, value in pairs(headers) do
+        table.insert(args, "-H " .. shell_quote(key .. ": " .. value))
+    end
+    return table.concat(args, " ")
+end
+
+local function wget_header_args(headers)
+    local args = {}
+    for key, value in pairs(headers) do
+        table.insert(args, "--header=" .. shell_quote(key .. ": " .. value))
+    end
+    return table.concat(args, " ")
+end
+
+-- Failure reason categories, from least to most specific/actionable. Every
+-- fetch tier reports one of these on failure so scraper() can tell the user
+-- something more useful than a single generic "network error":
+--   "unavailable" - this fetch method doesn't exist in this environment
+--                    (no curl/wget, no LuaSocket, no KOReader Api module)
+--   "unreachable" - no HTTP response at all (DNS/connection failure, timeout)
+--   "blocked"     - got a real response, but a non-200 status or a
+--                    recognized/suspected anti-bot challenge page
+local REASON_PRIORITY = { unavailable = 1, unreachable = 2, blocked = 3 }
+local function best_reason(a, b)
+    if not a then return b end
+    if not b then return a end
+    if (REASON_PRIORITY[b] or 0) > (REASON_PRIORITY[a] or 0) then
+        return b
+    end
+    return a
+end
+
 -- Pure Lua HTTP implementation using LuaSocket (fallback method)
 local function fetch_with_lua_socket(url)
     print('=== Trying pure Lua socket for URL:', url)
@@ -258,7 +293,7 @@ local function fetch_with_lua_socket(url)
     
     if not (socket_ok and http_ok and ltn12_ok) then
         print('=== LuaSocket not available')
-        return "no_socket", nil
+        return "no_socket", nil, "unavailable"
     end
 
     -- Every other fetch tier bounds its request (curl --max-time, wget --timeout,
@@ -270,10 +305,7 @@ local function fetch_with_lua_socket(url)
     local res, code, response_headers, status = http.request{
         url = url,
         method = "GET",
-        headers = {
-            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
+        headers = BROWSER_HEADERS,
         sink = ltn12.sink.table(response_body),
         redirect = true,
     }
@@ -284,19 +316,29 @@ local function fetch_with_lua_socket(url)
         return "success", body
     else
         print('=== LuaSocket failed, code:', code, 'status:', status)
-        return "socket_error", nil
+        -- A numeric code means we got a real (non-200) HTTP response; anything
+        -- else (typically an error message string) means the connection itself
+        -- failed before any response arrived.
+        return "socket_error", nil, (type(code) == "number") and "blocked" or "unreachable"
     end
 end
 
 -- Try external commands (curl/wget) for HTTP requests
 local function fetch_with_external_command(url)
     print('=== Trying external command for URL:', url)
-    
+
+    local tried_any = false
+    local reason = nil
+
     -- Try curl first (most reliable)
     if command_exists("curl") then
+        tried_any = true
         print('=== Using curl')
         local http_code_marker = "___CURL_HTTP_CODE___:"
-        local handle = io.popen('curl -L -s --max-time 20 -w "' .. http_code_marker .. '%{http_code}" ' .. shell_quote(url) .. ' 2>&1')
+        local handle = io.popen('curl -L -s --compressed --max-time 20 '
+            .. curl_header_args(BROWSER_HEADERS) .. ' '
+            .. '-w "' .. http_code_marker .. '%{http_code}" '
+            .. shell_quote(url) .. ' 2>&1')
         if handle then
             local raw = handle:read("*a")
             local success = handle:close()
@@ -306,19 +348,29 @@ local function fetch_with_external_command(url)
             if success and result and #result > 0 then
                 if http_code and http_code ~= 200 then
                     print('=== curl got HTTP', http_code, '- treating as failure, trying next method/mirror')
+                    reason = best_reason(reason, "blocked")
                 else
                     print('=== curl succeeded, got', #result, 'bytes')
                     return "success", result
                 end
+            else
+                -- curl ran but produced no usable response: connection/DNS/timeout failure.
+                reason = best_reason(reason, "unreachable")
             end
+        else
+            reason = best_reason(reason, "unreachable")
         end
     end
-    
+
     -- Try wget as fallback
     if command_exists("wget") then
+        tried_any = true
         print('=== Using wget')
         local temp_file = os.tmpname()
-        local cmd = string.format('wget -q -O %s --timeout=10 %s 2>&1', shell_quote(temp_file), shell_quote(url))
+        local cmd = string.format('wget -q -O %s --timeout=10 %s %s 2>&1',
+            shell_quote(temp_file),
+            wget_header_args(BROWSER_HEADERS),
+            shell_quote(url))
         local handle = io.popen(cmd)
         if handle then
             handle:close()
@@ -333,41 +385,42 @@ local function fetch_with_external_command(url)
                 end
             end
         end
+        -- wget aborts and writes nothing on an HTTP error status by default, so
+        -- reaching here most often means a rejected (blocked) request rather
+        -- than total unreachability.
+        reason = best_reason(reason, "blocked")
     end
-    
-    return "no_external_command", nil
+
+    if not tried_any then
+        return "no_external_command", nil, "unavailable"
+    end
+
+    return "no_external_command", nil, reason or "unreachable"
 end
 
 -- Try KOReader's API with multiple header configurations
 local function fetch_with_api(url)
     if not Api then
         print('=== Api.makeHttpRequest not available (running outside KOReader)')
-        return "api_unavailable", nil
+        return "api_unavailable", nil, "unavailable"
     end
 
     print('=== Trying Api.makeHttpRequest for:', url)
 
+    local reason = nil
     local hostname = url:match("://([^/]+)")
 
-    -- Try different header configurations for compatibility
+    -- Try progressively richer header configurations for compatibility: some
+    -- KOReader network backends are pickier about extra headers than others.
+    local full_headers = { ["Host"] = hostname }
+    for key, value in pairs(BROWSER_HEADERS) do
+        full_headers[key] = value
+    end
+
     local header_configs = {
-        -- Minimal headers
-        {
-            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-        -- Standard headers
-        {
-            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            ["Accept-Language"] = "en-US,en;q=0.5",
-        },
-        -- Full headers with hostname
-        {
-            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            ["Accept-Language"] = "en-US,en;q=0.5",
-            ["Host"] = hostname,
-        }
+        { ["User-Agent"] = BROWSER_HEADERS["User-Agent"] }, -- Minimal headers
+        BROWSER_HEADERS,                                    -- Standard headers
+        full_headers,                                       -- Full headers with hostname
     }
 
     for i, headers in ipairs(header_configs) do
@@ -384,76 +437,153 @@ local function fetch_with_api(url)
         
         if not success then
             print('=== API call threw error:', http_result)
+            reason = best_reason(reason, "unreachable")
             goto next_attempt
         end
-        
+
         if not http_result then
             print('=== API returned nil')
+            reason = best_reason(reason, "unreachable")
             goto next_attempt
         end
-        
+
         if http_result.error then
             print('=== API returned error:', http_result.error)
+            -- "HTTP Error: ..." means we got a real (non-200/206) response;
+            -- anything else (timeout, connection failure) means we didn't.
+            if tostring(http_result.error):find("HTTP Error", 1, true) then
+                reason = best_reason(reason, "blocked")
+            else
+                reason = best_reason(reason, "unreachable")
+            end
             goto next_attempt
         end
-        
+
         local status_code = tonumber(http_result.status_code)
         if status_code == 200 and http_result.body and #http_result.body > 0 then
             print('=== API succeeded with attempt', i, 'got', #http_result.body, 'bytes')
             return "success", http_result.body
         else
             print('=== API attempt', i, 'failed - status:', status_code, 'body exists:', http_result.body ~= nil)
+            reason = best_reason(reason, "blocked")
         end
-        
+
         ::next_attempt::
     end
-    
-    return "api_failed", nil
+
+    return "api_failed", nil, reason or "unreachable"
 end
 
 -- Main HTTP request function with three-tier fallback system
 function check_url(url)
     print('=== DEBUG: check_url called with:', url)
-    
+
+    local reason = nil
+
     -- Method 1: Try external commands (curl/wget) - most reliable
-    local ext_status, ext_data = fetch_with_external_command(url)
+    local ext_status, ext_data, ext_reason = fetch_with_external_command(url)
     if ext_status == "success" then
         return "success", ext_data
     end
-    
+    reason = best_reason(reason, ext_reason)
+
     print('=== External command not available, trying alternative methods')
-    
+
     -- Method 2: Try LuaSocket (pure Lua, no external dependencies)
-    local socket_status, socket_data = fetch_with_lua_socket(url)
+    local socket_status, socket_data, socket_reason = fetch_with_lua_socket(url)
     if socket_status == "success" then
         return "success", socket_data
     end
-    
+    reason = best_reason(reason, socket_reason)
+
     print('=== LuaSocket not available or failed, trying Api.makeHttpRequest')
-    
+
     -- Method 3: Try KOReader's API with multiple configurations
-    local api_status, api_data = fetch_with_api(url)
+    local api_status, api_data, api_reason = fetch_with_api(url)
     if api_status == "success" then
         return "success", api_data
     end
-    
+    reason = best_reason(reason, api_reason)
+
     -- All methods failed
     print('=== ERROR: All HTTP methods failed')
     print('=== Tried: external commands (curl/wget), LuaSocket, Api.makeHttpRequest')
-    
-    return "network_error", nil
+
+    return "network_error", nil, reason or "unreachable"
+end
+
+-- Turn a tally of per-mirror failure reasons into a message that actually
+-- says something about what went wrong, instead of a single generic string
+-- for every possible cause (blocked, unreachable, or no working HTTP method
+-- can all look identical to the caller otherwise).
+local function build_search_failure_message(total_attempts, failure_tally)
+    local blocked = failure_tally.blocked or 0
+    local unreachable = failure_tally.unreachable or 0
+    local unavailable = failure_tally.unavailable or 0
+
+    local parts = {}
+    if blocked > 0 then table.insert(parts, blocked .. " blocked by DDoS protection") end
+    if unreachable > 0 then table.insert(parts, unreachable .. " unreachable") end
+    if unavailable > 0 then table.insert(parts, unavailable .. " with no working HTTP method available") end
+
+    local detail = #parts > 0 and (" (" .. table.concat(parts, ", ") .. ")") or ""
+    local summary = string.format("Failed after trying %d mirror%s%s.",
+        total_attempts, total_attempts == 1 and "" or "s", detail)
+
+    if blocked > 0 and blocked >= unreachable and blocked >= unavailable then
+        return summary .. " Anna's Archive is blocking automated requests right now, try again later."
+    elseif unreachable > 0 then
+        return summary .. " Check internet connection or try again later. Mirrors may be down right now."
+    elseif unavailable > 0 then
+        return summary .. " No supported HTTP method is available on the device."
+    end
+    return summary
 end
 
 function scraper(query)
     -- Get current Anna's Archive domains from Wikipedia (with caching)
     local aa_domains = get_annas_archive_domains()
-    
+
+    if #aa_domains == 0 then
+        return "Could not fetch current AA mirrors from Wikipedia. Check your internet connection and try again."
+    end
+
     print("=== Using", #aa_domains, "Anna's Archive domains")
 
     local domain_counter = 0
     local protocols = {"https://"}
     local protocol_counter = 0
     local page = "1"
+
+    -- A mirror can serve an unrecognized bot-challenge page (not a known error
+    -- status/signature) that just happens to parse into zero book entries.
+    -- Retry a couple of other mirrors before accepting that as a genuine
+    -- empty result, without cycling through the entire domain list (which
+    -- would make a real "no matches" search take much longer than needed).
+    local zero_result_retries = 0
+    local MAX_ZERO_RESULT_RETRIES = 2
+
+    -- Tracks why each mirror attempt failed, so a total failure can report
+    -- something more useful than one generic message for every cause.
+    local total_attempts = 0
+    local failure_tally = { unavailable = 0, unreachable = 0, blocked = 0 }
+    local function tally_failure(reason)
+        reason = reason or "unreachable"
+        failure_tally[reason] = (failure_tally[reason] or 0) + 1
+    end
+
+    -- Give up and report results, favoring an informative failure message
+    -- over a bare empty list whenever mirrors were actually seen failing
+    -- along the way - otherwise a search that ran into real 403s/blocks
+    -- could still end up silently reported as "no results found" if it
+    -- happened to also hit the zero-result-retry cap (see below) rather
+    -- than exhausting the domain list outright.
+    local function give_up(book_lst_or_nil)
+        if failure_tally.blocked > 0 or failure_tally.unreachable > 0 or failure_tally.unavailable > 0 then
+            return build_search_failure_message(total_attempts, failure_tally)
+        end
+        return book_lst_or_nil or {}
+    end
 
     if not query then
         query = ''
@@ -469,13 +599,13 @@ function scraper(query)
     local filters = ''
 
     if languages then
-        for k, lang in pairs(languages) do
+        for _, lang in pairs(languages) do
             filters = filters .. "&lang=" .. lang
         end
     end
 
     if ext then
-        for k, e in pairs(ext) do
+        for _, e in pairs(ext) do
             filters = filters .. "&ext=" .. string.lower(e)
         end
     end
@@ -496,19 +626,21 @@ function scraper(query)
         domain_counter = 1
         protocol_counter = protocol_counter + 1
         if protocol_counter >= #protocols then
-            return "All domains and protocols failed. Anna's Archive may be blocked or no working HTTP method available."
+            return give_up(nil)
         end
     end
-    
+
     local annas_url = protocols[protocol_counter + 1] .. aa_domains[domain_counter] .. "/"
     local url = string.format("%ssearch?page=%s&q=%s%s", annas_url, page, encoded_query, filters)
-    
+
     print('Attempting URL:', url)
     print('Protocol:', protocols[protocol_counter + 1], 'Domain:', aa_domains[domain_counter])
-    
-    local status, data = check_url(url)
+
+    total_attempts = total_attempts + 1
+    local status, data, reason = check_url(url)
 
     if status == "network_error" or status == "dns_error" then
+        tally_failure(reason)
         print('Network/DNS error on ', annas_url)
         print('Checking different mirror ...')
         goto retry
@@ -516,6 +648,7 @@ function scraper(query)
         print("=== HTTP request succeeded")
 
         if not data or data == "" then
+            tally_failure("unreachable")
             print('=== ERROR: No data received from server')
             print('=== Retrying with different mirror...')
             goto retry
@@ -524,10 +657,13 @@ function scraper(query)
         print('=== SUCCESS: Received data, length:', #data)
         print('=== First 100 chars:', string.sub(data, 1, 100))
 
-        local ddos_guard_needle = 'der-gray-100<!doctype html><html><head><title>DDoS-Guard</titl'
-
-        if data:find(ddos_guard_needle, 1, true) then
-            print("=== DDoS guard triggered, trying different mirror ...")
+        -- The old needle here ('der-gray-100<!doctype html>...') required that exact
+        -- text immediately before the DDoS-Guard page, which a genuine top-level
+        -- challenge response (it just starts with <!doctype html>) never has - so
+        -- this never actually matched in practice. Match the real page directly.
+        if data:find("<title>DDoS-Guard</title>", 1, true) or data:find("/.well-known/ddos-guard/", 1, true) then
+            tally_failure("blocked")
+            print("=== DDoS-Guard challenge page detected, trying different mirror ...")
             goto retry
         end
 
@@ -536,6 +672,7 @@ function scraper(query)
         -- whether it already checked the HTTP status code itself.
         local http_error_code = data:match('<title>%s*(%d%d%d)%s+[^<]*</title>')
         if http_error_code and tonumber(http_error_code) >= 400 then
+            tally_failure("blocked")
             print("=== Got HTTP error page (" .. http_error_code .. "), trying different mirror ...")
             goto retry
         end
@@ -594,24 +731,19 @@ function scraper(query)
             book.md5 = md5
             book.link = link
             
-            if string.find(entry, "lgli", 1, true) then
+            local has_lgli = string.find(entry, "lgli", 1, true) ~= nil
+            local has_zlib = string.find(entry, "zlib", 1, true) ~= nil
+            if has_lgli and has_zlib then
+                book.download = 'lgli | zlib'
+            elseif has_lgli then
                 book.download = 'lgli'
-
-                if string.find(entry, "zlib", 1, true) then
-                    book.download = book.download .. ' | zlib'
-                end
-            else
-                if string.find(entry, "zlib", 1, true) then
-                    book.download = 'zlib'
-                end
+            elseif has_zlib then
+                book.download = 'zlib'
             end
 
             local number_str = entry:match(" (%d+%.?%d*)MB · ")
-
             if number_str then
                 book.size = number_str .. "MB"
-            else
-                number_str = 'NA'
             end
 
             print(book.download)
@@ -624,8 +756,16 @@ function scraper(query)
 
         print("found " .. book_count .. " entries")
 
-        return book_lst
+        if book_count == 0 and zero_result_retries < MAX_ZERO_RESULT_RETRIES then
+            zero_result_retries = zero_result_retries + 1
+            tally_failure("blocked")
+            print("=== Zero entries parsed (likely an unrecognized bot-challenge page), trying different mirror (" .. zero_result_retries .. "/" .. MAX_ZERO_RESULT_RETRIES .. ") ...")
+            goto retry
+        end
+
+        return give_up(book_lst)
     else
+        tally_failure(reason)
         print('Unknown error on ', annas_url, ': ', status)
         print('Checking different mirror ...')
         goto retry
@@ -673,42 +813,42 @@ function download_book(book, path)
         ::continue::
 
         local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
-        lgli_url = "https://libgen" .. lgli_ext
+        local lgli_url = "https://libgen" .. lgli_ext
         print(book.title)
 
         if not book.download then
             print('no source available')
             return "Failed, no download source available [lgli, zlib]."
         end
-        
+
         -- Check if book is available on Library Genesis
         if string.find(book.download, 'lgli', 1, true) then
-            download_page = lgli_url .. "ads.php?md5=" .. book.md5
+            local download_page = lgli_url .. "ads.php?md5=" .. book.md5
             print('download page on lgli: ', download_page)
-            local status, data = check_url(download_page)
+            local page_status, page_data = check_url(download_page)
 
-            if status == "network_error" then
-                return "Failed, please check connection, Network/HTTP error: " .. (data or "")
-            elseif status == "success" then
+            if page_status == "network_error" then
+                return "Failed, please check connection, Network/HTTP error: " .. (page_data or "")
+            elseif page_status == "success" then
                 print("Download page fetched successfully!")
 
-                if not data then
+                if not page_data then
                     print("No data received from download page")
                     goto continue_download
                 end
 
                 -- Extract the actual download link from the page
-                local download_link = data:match('href="([^"]*get%.php[^"]*)"')
+                local download_link = page_data:match('href="([^"]*get%.php[^"]*)"')
 
                 if download_link then
                     print("Found final link:", download_link)
                     local download_url = lgli_url .. download_link
 
-                    local status, data = check_url(download_url )
-                    print('status:\n', status)
+                    local dl_status, dl_data = check_url(download_url)
+                    print('status:\n', dl_status)
                     print(filename)
-                    local status, msg = save_file_bytes(filename, data)
-                    print(msg)
+                    local save_ok, save_msg = save_file_bytes(filename, dl_data)
+                    print(save_msg)
                     return filename
 
                 else
@@ -716,7 +856,7 @@ function download_book(book, path)
                 end
 
             end
-            
+
         else
             print('book not available on libgen')
         end
