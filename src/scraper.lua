@@ -801,11 +801,11 @@ local LIBGEN_MIRRORS = {
 -- the plugin's language setting uses ISO codes (Config.SUPPORTED_LANGUAGES).
 local LIBGEN_LANGUAGE_NAMES = {
     ar = "Arabic", hy = "Armenian", az = "Azerbaijani", bn = "Bengali",
-    zh = "Chinese", ["zh-Hant"] = "Chinese", nl = "Dutch", en = "English",
+    zh = "Chinese", ["zh-Hant"] = "Chinese", cs = "Czech", nl = "Dutch", en = "English",
     fr = "French", ka = "Georgian", de = "German", el = "Greek", hi = "Hindi",
     id = "Indonesian", it = "Italian", ja = "Japanese", ko = "Korean",
     ms = "Malay", ps = "Pashto", pl = "Polish", pt = "Portuguese",
-    ru = "Russian", sr = "Serbian", es = "Spanish", te = "Telugu", th = "Thai",
+    ru = "Russian", sr = "Serbian", sk = "Slovak", es = "Spanish", te = "Telugu", th = "Thai",
     tr = "Turkish", uk = "Ukrainian", ur = "Urdu", vi = "Vietnamese",
 }
 
