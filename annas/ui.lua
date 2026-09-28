@@ -143,6 +143,19 @@ function Ui.showSettingsDialog()
                 Ui.showDownloadDirectoryDialog()
             end,
             }},{{
+            text = string.format(T("Max. result pages to filter: %d"), Config.getLibgenMaxPages()),
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                Ui.showLibgenMaxPagesDialog()
+            end,
+            }},{{
+            text = #Config.getLibgenTopics() == 0 and T("Library Genesis collections: all")
+                or string.format(T("Library Genesis collections: %d selected"), #Config.getLibgenTopics()),
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                Ui.showLibgenTopicsDialog()
+            end,
+            }},{{
             text = T("Check for Updates"),
             keep_menu_open = false,
             separator = true,
@@ -159,6 +172,23 @@ function Ui.showSettingsDialog()
         }
     }
     _showAndTrackDialog(dialog)
+end
+
+function Ui.showLibgenMaxPagesDialog()
+    local SpinWidget = require("ui/widget/spinwidget")
+    local widget = SpinWidget:new{
+        title_text = T("Max. result pages to filter"),
+        info_text = T("Library Genesis can't filter by language or format itself, so with those filters set, the plugin reads up to this many pages of 100 results and keeps the matches. More pages find more matches for narrow filters, but each page adds about a second."),
+        value = Config.getLibgenMaxPages(),
+        value_min = Config.LIBGEN_MAX_PAGES_MIN,
+        value_max = Config.LIBGEN_MAX_PAGES_MAX,
+        default_value = Config.LIBGEN_MAX_PAGES_DEFAULT,
+        callback = function(spin)
+            Config.setLibgenMaxPages(spin.value)
+            Ui.showSettingsDialog()
+        end,
+    }
+    _showAndTrackDialog(widget)
 end
 
 local function _showMultiSelectionDialog(parent_ui, title, setting_key, options_list, ok_callback, is_single)
@@ -258,6 +288,12 @@ end
 
 function Ui.showExtensionSelectionDialog(parent_ui)
     _showMultiSelectionDialog(parent_ui, T("Select search formats"), Config.SETTINGS_SEARCH_EXTENSIONS_KEY, Config.SUPPORTED_EXTENSIONS)
+end
+
+function Ui.showLibgenTopicsDialog(parent_ui)
+    _showMultiSelectionDialog(parent_ui, T("Select Library Genesis collections"), Config.SETTINGS_LIBGEN_TOPICS_KEY, Config.SUPPORTED_LIBGEN_TOPICS, function()
+        Ui.showSettingsDialog()
+    end)
 end
 
 function Ui.showOrdersSelectionDialog(parent_ui, ok_callback)

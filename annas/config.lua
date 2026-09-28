@@ -8,6 +8,26 @@ Config.SETTINGS_SEARCH_EXTENSIONS_KEY = "annas_search_extensions"
 Config.SETTINGS_SEARCH_ORDERS_KEY = "annas_search_order"
 Config.SETTINGS_DOWNLOAD_DIR_KEY = "annas_download_dir"
 Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY = "annas_turn_off_wifi_after_download"
+Config.SETTINGS_LIBGEN_MAX_PAGES_KEY = "annas_libgen_max_pages"
+Config.SETTINGS_LIBGEN_TOPICS_KEY = "annas_libgen_topics"
+
+-- Library Genesis collections, as libgen's topics[] search parameter.
+-- No selection searches all of them (libgen's default).
+Config.SUPPORTED_LIBGEN_TOPICS = {
+    { name = T("Libgen"), value = "l" },
+    { name = T("Comics"), value = "c" },
+    { name = T("Fiction"), value = "f" },
+    { name = T("Scientific Articles"), value = "a" },
+    { name = T("Magazines"), value = "m" },
+    { name = T("Fiction RUS"), value = "r" },
+    { name = T("Standards"), value = "s" },
+}
+
+-- libgen can't filter by language or format itself, so with those filters
+-- set the plugin pages through results (100 per page) and filters locally.
+Config.LIBGEN_MAX_PAGES_DEFAULT = 5
+Config.LIBGEN_MAX_PAGES_MIN = 1
+Config.LIBGEN_MAX_PAGES_MAX = 20
 
 Config.DEFAULT_DOWNLOAD_DIR_FALLBACK = G_reader_settings:readSetting("home_dir")
              or require("apps/filemanager/filemanagerutil").getDefaultDir()
@@ -128,6 +148,19 @@ end
 
 function Config.setTurnOffWifiAfterDownload(turn_off)
     Config.saveSetting(Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY, turn_off)
+end
+
+function Config.getLibgenMaxPages()
+    local pages = tonumber(Config.getSetting(Config.SETTINGS_LIBGEN_MAX_PAGES_KEY)) or Config.LIBGEN_MAX_PAGES_DEFAULT
+    return math.max(Config.LIBGEN_MAX_PAGES_MIN, math.min(Config.LIBGEN_MAX_PAGES_MAX, math.floor(pages)))
+end
+
+function Config.setLibgenMaxPages(pages)
+    Config.saveSetting(Config.SETTINGS_LIBGEN_MAX_PAGES_KEY, pages)
+end
+
+function Config.getLibgenTopics()
+    return Config.getSetting(Config.SETTINGS_LIBGEN_TOPICS_KEY, {})
 end
 
 -- Pre-rename versions stored these under zlibrary_* keys, which collided with

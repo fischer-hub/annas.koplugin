@@ -242,8 +242,12 @@ end
 -- triggers for a 403 a real browser never sees for the same URL. Every fetch
 -- tier below sends this same realistic, complete header set.
 local BROWSER_HEADERS = {
-    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    ["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15",
+    ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    -- No Accept-Encoding here: wget, LuaSocket and KOReader's Api don't
+    -- decompress responses, so advertising br/zstd gets them bytes they
+    -- can't parse (libgen.la answers with zstd). curl's --compressed flag
+    -- already requests only the encodings curl itself can decode.
     ["Accept-Language"] = "en-US,en;q=0.9",
 }
 
@@ -335,6 +339,10 @@ local function fetch_with_external_command(url)
         tried_any = true
         print('=== Using curl')
         local http_code_marker = "___CURL_HTTP_CODE___:"
+        print('curl -L -s --compressed --max-time 20 '
+            .. curl_header_args(BROWSER_HEADERS) .. ' '
+            .. '-w "' .. http_code_marker .. '%{http_code}" '
+            .. shell_quote(url) .. ' 2>&1')
         local handle = io.popen('curl -L -s --compressed --max-time 20 '
             .. curl_header_args(BROWSER_HEADERS) .. ' '
             .. '-w "' .. http_code_marker .. '%{http_code}" '
@@ -540,7 +548,8 @@ local function build_search_failure_message(total_attempts, failure_tally)
     return summary
 end
 
-function scraper(query)
+-- Search Anna's Archive (fallback source, see scraper() below)
+local function annas_search(query)
     -- Get current Anna's Archive domains from Wikipedia (with caching)
     local aa_domains = get_annas_archive_domains()
 
@@ -773,6 +782,258 @@ function scraper(query)
     return "Unknown error occurred"
 end
 
+-- Library Genesis mirrors, used both to search (libgen_search) and to
+-- download (download_book, via each mirror's ads.php page).
+local LIBGEN_MIRRORS = {
+    "libgen.gl",
+    "libgen.li",
+    "libgen.la",
+    "libgen.me",
+    "libgen.bz",
+    "libgen.vg",
+    "libgen.st",
+    "libgen.is",
+}
+
+-- libgen has no language or format query parameter (it also ignores
+-- "lang:"/"ext:" terms in the query), so those filters are applied to the
+-- parsed results instead. libgen stores languages as English names, while
+-- the plugin's language setting uses ISO codes (Config.SUPPORTED_LANGUAGES).
+local LIBGEN_LANGUAGE_NAMES = {
+    ar = "Arabic", hy = "Armenian", az = "Azerbaijani", bn = "Bengali",
+    zh = "Chinese", ["zh-Hant"] = "Chinese", nl = "Dutch", en = "English",
+    fr = "French", ka = "Georgian", de = "German", el = "Greek", hi = "Hindi",
+    id = "Indonesian", it = "Italian", ja = "Japanese", ko = "Korean",
+    ms = "Malay", ps = "Pashto", pl = "Polish", pt = "Portuguese",
+    ru = "Russian", sr = "Serbian", es = "Spanish", te = "Telugu", th = "Thai",
+    tr = "Turkish", uk = "Ukrainian", ur = "Urdu", vi = "Vietnamese",
+}
+
+-- The plugin's sort options mapped to libgen's order/ordermode parameters.
+-- libgen has no relevance or random order: "Most Relevant" keeps libgen's
+-- default order and "Random" shuffles the parsed results.
+local LIBGEN_SORT = {
+    newest = { "year", "desc" },
+    oldest = { "year", "asc" },
+    largest = { "filesize", "desc" },
+    smallest = { "filesize", "asc" },
+    newest_added = { "time_added", "desc" },
+    oldest_added = { "time_added", "asc" },
+}
+
+local function strip_tags(html)
+    local text = html:gsub("<[^>]->", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+    if text == "" then return nil end
+    return text
+end
+
+-- A results page is a table with one row per file: title, author,
+-- publisher, year, language, pages, size, extension, mirror links.
+local function parse_libgen_results(html)
+    local books = {}
+    local row_count = 0
+    for row in html:gmatch("<tr>(.-)</tr>") do
+        local md5 = row:match("ads%.php%?md5=(%x+)")
+        if md5 then
+            row_count = row_count + 1
+        end
+        local cells = {}
+        for cell in row:gmatch("<td[^>]*>(.-)</td>") do
+            cells[#cells + 1] = cell
+        end
+        local format = cells[8] and strip_tags(cells[8])
+        -- download_book needs an md5 and a format (for the file name)
+        if md5 and #md5 == 32 and #cells >= 9 and format then
+            -- the first cell also holds the series name and badges; the
+            -- title itself is the edition link
+            local title = cells[1]:match('href="edition%.php[^"]*">(.-)</a>') or cells[1]
+            local pages = strip_tags(cells[6])
+            table.insert(books, {
+                title = strip_tags(title) or "Unknown Title",
+                author = strip_tags(cells[2]) or "Unknown Author",
+                publisher = strip_tags(cells[3]),
+                year = strip_tags(cells[4]),
+                lang = strip_tags(cells[5]),
+                pages = pages ~= "0" and pages or nil,
+                size = strip_tags(cells[7]),
+                format = format:upper(),
+                md5 = md5,
+                download = "lgli",
+            })
+        end
+    end
+    return books, row_count
+end
+
+local function filter_libgen_results(books)
+    local languages = Config and Config.getSearchLanguages() or {}
+    local extensions = Config and Config.getSearchExtensions() or {}
+    if #languages == 0 and #extensions == 0 then
+        return books
+    end
+
+    local wanted_languages = {}
+    for _, code in ipairs(languages) do
+        -- settings saved by older versions may hold names instead of codes
+        table.insert(wanted_languages, (LIBGEN_LANGUAGE_NAMES[code] or code):lower())
+    end
+    local wanted_formats = {}
+    for _, ext in ipairs(extensions) do
+        wanted_formats[ext:upper()] = true
+    end
+
+    local filtered = {}
+    for _, book in ipairs(books) do
+        -- libgen may list several languages for one file ("English; German")
+        local language_ok = #wanted_languages == 0
+        if not language_ok and book.lang then
+            local lang = book.lang:lower()
+            for _, name in ipairs(wanted_languages) do
+                if lang:find(name, 1, true) then
+                    language_ok = true
+                    break
+                end
+            end
+        end
+        local format_ok = #extensions == 0 or wanted_formats[book.format]
+        if language_ok and format_ok then
+            table.insert(filtered, book)
+        end
+    end
+    return filtered
+end
+
+local function shuffle(list)
+    for i = #list, 2, -1 do
+        local j = math.random(i)
+        list[i], list[j] = list[j], list[i]
+    end
+end
+
+local LIBGEN_PAGE_SIZE = 100
+-- when paging through filtered results, stop once this many matches are in
+local LIBGEN_ENOUGH_MATCHES = 100
+
+-- Fetch and parse one page of libgen results. Returns the parsed books and
+-- the page's raw row count, or nil plus a failure reason.
+local function fetch_libgen_page(mirror, path, page)
+    local url = "https://" .. mirror .. path .. (page > 1 and ("&page=" .. page) or "")
+    print("=== Trying libgen search:", url)
+    local status, data, fail_reason = check_url(url)
+    if status == "success" and data and data:find("<title>Library Genesis", 1, true) then
+        return parse_libgen_results(data)
+    end
+    -- a "successful" response that isn't a libgen results page is most
+    -- likely a block, challenge or error page
+    if status == "success" then
+        local title = data and data:match("<title>(.-)</title>")
+        print("=== libgen mirror returned an unexpected page:", mirror, #(data or ""), "bytes, title:", title or "(none)")
+    end
+    return nil, fail_reason or "blocked"
+end
+
+local function has_search_filters()
+    local languages = Config and Config.getSearchLanguages() or {}
+    local extensions = Config and Config.getSearchExtensions() or {}
+    return #languages > 0 or #extensions > 0
+end
+
+-- Search Library Genesis. Mirrors don't all carry the same files, so a
+-- mirror with no (matching) results moves on to the next one. libgen can't
+-- filter by language or format itself, so with those filters set, each
+-- mirror is paged through (up to the user's "max result pages" setting)
+-- and the rows are filtered locally. Returns the first non-empty list of
+-- books, an empty list if every reachable mirror came up empty, or nil
+-- plus a failure reason if no mirror returned a results page at all.
+local function libgen_search(query)
+    local order = Config and Config.getSearchOrder() or {}
+    local params = { "req=" .. url_encode(query or ""), "res=" .. LIBGEN_PAGE_SIZE }
+    -- no topics[] parameter means libgen searches every collection
+    for _, topic in ipairs(Config and Config.getLibgenTopics and Config.getLibgenTopics() or {}) do
+        table.insert(params, "topics%5B%5D=" .. url_encode(topic))
+    end
+    local sort = LIBGEN_SORT[order[1] or ""]
+    if sort then
+        table.insert(params, "order=" .. sort[1])
+        table.insert(params, "ordermode=" .. sort[2])
+    end
+    local path = "/index.php?" .. table.concat(params, "&")
+
+    -- without filters, one page of 100 results is plenty
+    local max_pages = 1
+    if has_search_filters() then
+        max_pages = Config and Config.getLibgenMaxPages() or 5
+    end
+
+    local reason = nil
+    local got_results_page = false
+    for _, mirror in ipairs(LIBGEN_MIRRORS) do
+        local books = {}
+        for page = 1, max_pages do
+            local parsed, row_count = fetch_libgen_page(mirror, path, page)
+            if not parsed then
+                -- keep whatever earlier pages of this mirror already matched
+                reason = best_reason(reason, row_count)
+                print("=== libgen mirror failed:", mirror, "page", page, reason)
+                break
+            end
+            got_results_page = true
+            local matches = filter_libgen_results(parsed)
+            for _, book in ipairs(matches) do
+                table.insert(books, book)
+            end
+            print("=== libgen mirror", mirror, "page", page, "parsed", row_count, "rows,", #matches, "matched filters,", #books, "total")
+            -- Full pages don't always hold exactly LIBGEN_PAGE_SIZE rows
+            -- (a "marx" page 2 had 99, with more pages after it), and the
+            -- page has no usable pagination links, so only treat a clearly
+            -- short page as the last one. A last page with more rows than
+            -- that just costs one extra, empty request.
+            if row_count < LIBGEN_PAGE_SIZE / 2 or #books >= LIBGEN_ENOUGH_MATCHES then
+                break
+            end
+        end
+        if #books > 0 then
+            if order[1] == "random" then
+                shuffle(books)
+            end
+            return books
+        end
+    end
+    if got_results_page then
+        return {}
+    end
+    return nil, reason or "unreachable"
+end
+
+-- Search entry point used by main.lua. Library Genesis comes first: its
+-- search pages are plain HTML without an anti-bot challenge. Anna's Archive
+-- is the fallback when every libgen mirror fails, or when libgen finds
+-- nothing (libgen's language/format filtering happens on one page of
+-- results, so a filtered search can come up empty where Anna's server-side
+-- filters would still find matches).
+function scraper(query)
+    local books, libgen_reason = libgen_search(query)
+    if books and #books > 0 then
+        return books
+    end
+
+    print("=== libgen search " .. (books and "found no results" or "failed") .. ", falling back to Anna's Archive")
+    local annas_result = annas_search(query)
+    if type(annas_result) == "table" and #annas_result > 0 then
+        return annas_result
+    end
+
+    if books then
+        -- libgen answered with a genuine empty result; Anna's being blocked
+        -- shouldn't turn that into an error
+        return books
+    end
+    if type(annas_result) == "string" then
+        return "Library Genesis search failed (every mirror " .. libgen_reason .. "). Anna's Archive fallback: " .. annas_result
+    end
+    return annas_result
+end
+
 function sanitize_name(name)
     local sanitized = name
     sanitized = sanitized:gsub("[^%w._-]", "_")
@@ -799,21 +1060,11 @@ end
 -- Download book from Library Genesis mirrors
 function download_book(book, path)
     -- Try different Library Genesis mirrors
-    local lgli_exts = {
-        ".la/",
-        ".gl/",
-        ".li/",
-        ".is/",
-        ".rs/",
-        ".st/",
-        ".bz/",
-    }
-
-    for _, lgli_ext in ipairs(lgli_exts) do
+    for _, mirror in ipairs(LIBGEN_MIRRORS) do
         ::continue::
 
         local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
-        local lgli_url = "https://libgen" .. lgli_ext
+        local lgli_url = "https://" .. mirror .. "/"
         print(book.title)
 
         if not book.download then
