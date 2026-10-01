@@ -26,6 +26,22 @@ The plugin was tested on KOReader installed on a Kindle Paperwhite 11th generati
 5.  Under Search Results click on the entry you are interested in.
 6.  Finally hit `Format: (tap to download)` and confirm again by tapping `Download`.
 
+### Anna's Archive membership (optional)
+
+If you have an Anna's Archive membership, enter your secret key under **Anna's Archive → Settings**. Downloads then go through Anna's Archive's fast-download API first, falling back to Library Genesis mirrors. Library Genesis works without a key.
+
+You can also put the key in an `annas_credentials.lua` file in the plugin directory. It's imported once, on the first start where no key has been saved or cleared in Settings:
+
+```lua
+return {
+    annasSecretKey = "your-secret-key",
+}
+```
+
+## Development
+
+The standalone tests need only LuaJIT: run `sh tests/run.sh` from the plugin directory.
+
 ## DNS Settings (Advanced)
 <details>
 <summary>Click to reveal</summary>

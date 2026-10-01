@@ -75,8 +75,8 @@ jobs:
           # 3. Enable 'dotglob' to ensure hidden files (like .gitignore) are included.
           shopt -s dotglob extglob
           
-          # 4. Move all the repository content into the new directory.
-          mv !($repo_name|assets) $repo_name/
+          # 4. Move all the repository content (except the tests, which don't ship) into the new directory.
+          mv !($repo_name|assets|tests) $repo_name/
           
           # 5. Create the zip file from the new directory. The '-r' flag makes it recursive.
           zip -9 -r ${repo_name}-${{github.event.release.tag_name}}.zip $repo_name/

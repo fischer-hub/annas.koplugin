@@ -2,11 +2,32 @@ local logger = require("logger")
 local socketutil = require("socketutil")
 local http = require("socket.http")
 local T = require("annas.gettext")
+local Config = require("annas.config")
 
 local Api = {}
 
+-- Strip credentials from any text (URLs, error and status strings) before it
+-- reaches logs or the UI: the configured member key in raw or URL-encoded
+-- form, and any ?key= URL parameter whether or not a key is configured.
+function Api.redactSecrets(text)
+    text = tostring(text)
+    local key = Config.getAnnasSecretKey()
+    -- Generic key parameters first so a substituted secret cannot make the
+    -- second pattern consume trailing log text as part of its value.
+    text = text:gsub("([?&]key=)[^&%s]+", "%1[REDACTED]")
+    if key then
+        -- Raw and URL-encoded forms; the key may appear outside key= params
+        -- (e.g. signed CDN paths or POST bodies echoed in error strings).
+        text = text:gsub((key:gsub("%W", "%%%1")), "[REDACTED]")
+        local encoded = key:gsub("([^%w%-%._~])",
+            function(c) return string.format("%%%02X", string.byte(c)) end)
+        text = text:gsub((encoded:gsub("%%", "%%%%")), "[REDACTED]")
+    end
+    return text
+end
+
 function Api.makeHttpRequest(options)
-    logger.dbg(string.format("Annas:Api.makeHttpRequest - START - URL: %s, Method: %s", options.url, options.method or "GET"))
+    logger.dbg(string.format("Annas:Api.makeHttpRequest - START - URL: %s, Method: %s", Api.redactSecrets(options.url), options.method or "GET"))
 
     local response_body_table = {}
     local result = { body = nil, status_code = nil, error = nil, headers = nil }
@@ -33,10 +54,11 @@ function Api.makeHttpRequest(options)
         headers = options.headers,
         source = options.source,
         sink = sink_to_use,
-        redirect = true,
+        -- redirect = false keeps headers (e.g. Set-Cookie) and never forwards them to another host.
+        redirect = options.redirect ~= false,
     }
 
-    logger.dbg(string.format("Annas:Api.makeHttpRequest - Request Params: URL: %s, Method: %s, Timeout: %s", request_params.url, request_params.method, tostring(options.timeout)))
+    logger.dbg(string.format("Annas:Api.makeHttpRequest - Request Params: URL: %s, Method: %s, Timeout: %s", Api.redactSecrets(request_params.url), request_params.method, tostring(options.timeout)))
 
     local req_ok, r_val, r_code, r_headers_tbl, r_status_str = pcall(http.request, request_params)
 
@@ -46,10 +68,10 @@ function Api.makeHttpRequest(options)
     end
 
     logger.dbg(string.format("Annas:Api.makeHttpRequest - pcall result: ok=%s, r_val=%s (type %s), r_code=%s (type %s), r_headers_tbl type=%s, r_status_str=%s",
-        tostring(req_ok), tostring(r_val), type(r_val), tostring(r_code), type(r_code), type(r_headers_tbl), tostring(r_status_str)))
+        tostring(req_ok), Api.redactSecrets(r_val), type(r_val), Api.redactSecrets(r_code), type(r_code), type(r_headers_tbl), Api.redactSecrets(r_status_str)))
 
     if not req_ok then
-        local error_msg = tostring(r_val)
+        local error_msg = Api.redactSecrets(r_val)
         if string.find(error_msg, "timeout") or
            string.find(error_msg, "wantread") or
            string.find(error_msg, "closed") or
@@ -87,7 +109,7 @@ function Api.makeHttpRequest(options)
 
     if result.status_code ~= 200 and result.status_code ~= 206 then
         if not result.error then
-            result.error = string.format("%s: %s (%s)", T("HTTP Error"), result.status_code, r_status_str or T("Unknown Status"))
+            result.error = string.format("%s: %s (%s)", T("HTTP Error"), result.status_code, Api.redactSecrets(r_status_str or T("Unknown Status")))
         end
     end
 

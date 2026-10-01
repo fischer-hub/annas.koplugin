@@ -1057,19 +1057,116 @@ function save_file_bytes(path, bytes)
     return true, "saved file to: " .. path
 end
 
--- Download book from Library Genesis mirrors
+-- Exact official Anna's Archive hosts that may receive the member key: the
+-- Wikipedia mirror list can be edited by anyone, so a listed-but-stale or
+-- hijacked domain never sees it.
+local CREDENTIAL_HOSTS = {
+    ["annas-archive.pk"] = true,
+    ["annas-archive.gd"] = true,
+    ["annas-archive.gl"] = true,
+}
+
+-- Try Anna's Archive's member fast-download API; returns the saved filename
+-- or nil plus the failure detail.
+local function fast_download_book(book, filename)
+    local secret_key = Config and Config.getAnnasSecretKey()
+    if not secret_key or not book.md5 or not Api then
+        return nil
+    end
+
+    local json = require("json")
+    local detail = "no trusted Anna's Archive mirror is listed"
+
+    for _, domain in ipairs(get_annas_archive_domains()) do
+        -- The key goes into this endpoint's URL; only send it to exact known
+        -- official Anna hosts, never to stale/retired cache entries.
+        if CREDENTIAL_HOSTS[domain] then
+            local base_url = "https://" .. domain
+            local api_url = string.format(
+                "%s/dyn/api/fast_download.json?md5=%s&key=%s",
+                base_url,
+                url_encode(book.md5),
+                url_encode(secret_key)
+            )
+            print("Trying Anna's Archive fast download API on:", base_url)
+
+            local http_result = Api.makeHttpRequest{
+                url = api_url,
+                method = "GET",
+                headers = {
+                    ["Accept"] = "application/json",
+                    ["User-Agent"] = BROWSER_HEADERS["User-Agent"],
+                },
+                -- The URL carries the member key; never follow a redirect and
+                -- risk forwarding it to another host.
+                redirect = false,
+                timeout = { 15, 15 },
+            }
+
+            -- Failures arrive as non-2xx statuses with a JSON `error` field
+            -- (e.g. 401 "Invalid secret key"), so read the body either way.
+            local response = {}
+            if http_result.body and http_result.body ~= "" then
+                local decoded, value = pcall(json.decode, http_result.body)
+                if decoded and type(value) == "table" then
+                    response = value
+                end
+            end
+
+            if response.download_url then
+                local status, file_data, dl_reason = check_url(response.download_url)
+                if status == "success" then
+                    local saved, save_err = save_file_bytes(filename, file_data)
+                    if saved then
+                        return filename
+                    end
+                    detail = save_err
+                else
+                    detail = "download URL fetch failed (" .. tostring(dl_reason) .. ")"
+                end
+            elseif response.error then
+                -- An answer from the API itself (invalid key, no downloads
+                -- left, ...): every mirror shares that account state.
+                detail = tostring(response.error)
+                break
+            else
+                -- No JSON at all: a challenge page or unreachable mirror.
+                detail = http_result.error or "unexpected fast-download API response"
+            end
+        end
+    end
+
+    return nil, detail
+end
+
+-- Anna's Archive's fast-download API is tried first when a member key is
+-- configured; 'lgli' sources fall back to Library Genesis mirrors.
 function download_book(book, path)
+    local filename = path .. "/" .. sanitize_name(book.title) .. '_'
+        .. sanitize_name(book.author) .. '.' .. book.format
+    local fast_result, fast_detail = fast_download_book(book, filename)
+    if fast_result then
+        return fast_result
+    end
+
+    local function failed(message)
+        -- Keep the fast-download reason visible when the fallback also fails.
+        if fast_detail then
+            message = message .. " (fast download: " .. tostring(fast_detail) .. ")"
+        end
+        return "Failed, " .. message
+    end
+
     -- Try different Library Genesis mirrors
     for _, mirror in ipairs(LIBGEN_MIRRORS) do
         ::continue::
 
-        local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
         local lgli_url = "https://" .. mirror .. "/"
         print(book.title)
 
         if not book.download then
             print('no source available')
-            return "Failed, no download source available [lgli, zlib]."
+            return failed("no download source available [lgli, zlib].")
         end
 
         -- Check if book is available on Library Genesis
@@ -1079,7 +1176,7 @@ function download_book(book, path)
             local page_status, page_data = check_url(download_page)
 
             if page_status == "network_error" then
-                return "Failed, please check connection, Network/HTTP error: " .. (page_data or "")
+                return failed("please check connection, Network/HTTP error: " .. (page_data or ""))
             elseif page_status == "success" then
                 print("Download page fetched successfully!")
 
@@ -1115,7 +1212,7 @@ function download_book(book, path)
         ::continue_download::
     end
     
-    return 'Failed, could not fetch download link from source page.'
+    return failed("could not fetch download link from source page.")
 end
 
 -- Main execution block (runs when script is executed directly)

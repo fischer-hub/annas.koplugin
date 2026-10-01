@@ -123,6 +123,32 @@ function Ui.showDownloadDirectoryDialog()
     }:chooseDir(current_dir)
 end
 
+function Ui.showGenericInputDialog(title, current_value, is_password, save_callback)
+    local dialog
+    dialog = InputDialog:new{
+        title = title,
+        input = current_value or "",
+        text_type = is_password and "password" or nil,
+        buttons = {{
+            {
+                text = T("Cancel"),
+                id = "close",
+                callback = function() _closeAndUntrackDialog(dialog) end,
+            },
+            {
+                text = T("Set"),
+                callback = function()
+                    save_callback(dialog:getInputText() or "")
+                    _closeAndUntrackDialog(dialog)
+                    Ui.showInfoMessage(T("Setting saved successfully!"))
+                end,
+            },
+        }},
+    }
+    _showAndTrackDialog(dialog)
+    dialog:onShowKeyboard()
+end
+
 function Ui.showSettingsDialog()
 
     local full_source_path = debug.getinfo(1, "S").source
@@ -131,12 +157,25 @@ function Ui.showSettingsDialog()
     end
     local foo, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
     local plugin_path, _ = foo:gsub("/annas/", "")
+    local secret_key = Config.getAnnasSecretKey()
+    local key_status = secret_key and T("configured") or T("not set")
 
     dialog = ButtonDialog:new{
         title = T("Settings"),
         input = def_input,
         buttons = {
             {{
+            text = string.format("%s (%s)", T("Anna's Archive Secret Key"), key_status),
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                Ui.showGenericInputDialog(
+                    T("Anna's Archive Secret Key"),
+                    secret_key or "",
+                    true,
+                    Config.setAnnasSecretKey
+                )
+            end,
+            }},{{
             text = T("Set Download Directory"),
             callback = function()
                 _closeAndUntrackDialog(dialog)
