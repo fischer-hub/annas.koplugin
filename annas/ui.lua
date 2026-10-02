@@ -123,6 +123,32 @@ function Ui.showDownloadDirectoryDialog()
     }:chooseDir(current_dir)
 end
 
+function Ui.showSecretKeyDialog()
+    local dialog
+    dialog = InputDialog:new{
+        title = T("Anna's Archive Secret Key"),
+        input = Config.getAnnasSecretKey() or "",
+        text_type = "password",
+        buttons = {{
+            {
+                text = T("Cancel"),
+                id = "close",
+                callback = function() _closeAndUntrackDialog(dialog) end,
+            },
+            {
+                text = T("Set"),
+                callback = function()
+                    Config.setAnnasSecretKey(dialog:getInputText())
+                    _closeAndUntrackDialog(dialog)
+                    Ui.showInfoMessage(T("Setting saved successfully!"))
+                end,
+            },
+        }},
+    }
+    _showAndTrackDialog(dialog)
+    dialog:onShowKeyboard()
+end
+
 function Ui.showSettingsDialog()
 
     local full_source_path = debug.getinfo(1, "S").source
@@ -131,12 +157,19 @@ function Ui.showSettingsDialog()
     end
     local foo, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
     local plugin_path, _ = foo:gsub("/annas/", "")
+    local key_status = Config.getAnnasSecretKey() and T("configured") or T("not set")
 
     dialog = ButtonDialog:new{
         title = T("Settings"),
         input = def_input,
         buttons = {
             {{
+            text = string.format("%s (%s)", T("Anna's Archive Secret Key"), key_status),
+            callback = function()
+                _closeAndUntrackDialog(dialog)
+                Ui.showSecretKeyDialog()
+            end,
+            }},{{
             text = T("Set Download Directory"),
             callback = function()
                 _closeAndUntrackDialog(dialog)

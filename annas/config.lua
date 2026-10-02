@@ -10,6 +10,7 @@ Config.SETTINGS_DOWNLOAD_DIR_KEY = "annas_download_dir"
 Config.SETTINGS_TURN_OFF_WIFI_AFTER_DOWNLOAD_KEY = "annas_turn_off_wifi_after_download"
 Config.SETTINGS_LIBGEN_MAX_PAGES_KEY = "annas_libgen_max_pages"
 Config.SETTINGS_LIBGEN_TOPICS_KEY = "annas_libgen_topics"
+Config.SETTINGS_AA_SECRET_KEY_KEY = "annas_archive_secret_key"
 
 -- Library Genesis collections, as libgen's topics[] search parameter.
 -- No selection searches all of them (libgen's default).
@@ -163,6 +164,15 @@ end
 
 function Config.getLibgenTopics()
     return Config.getSetting(Config.SETTINGS_LIBGEN_TOPICS_KEY, {})
+end
+
+function Config.getAnnasSecretKey()
+    local key = Config.getSetting(Config.SETTINGS_AA_SECRET_KEY_KEY)
+    return key ~= "" and key or nil
+end
+
+function Config.setAnnasSecretKey(key)
+    Config.saveSetting(Config.SETTINGS_AA_SECRET_KEY_KEY, key)
 end
 
 -- Pre-rename versions stored these under zlibrary_* keys, which collided with

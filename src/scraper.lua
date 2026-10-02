@@ -1133,19 +1133,91 @@ function save_file_bytes(path, bytes)
     return true, "saved file to: " .. path
 end
 
--- Download book from Library Genesis mirrors
+-- Only these official hosts get the member key; the scraped mirror list is untrusted.
+local CREDENTIAL_HOSTS = {
+    ["annas-archive.pk"] = true,
+    ["annas-archive.gd"] = true,
+    ["annas-archive.gl"] = true,
+}
+
+local function fast_download_book(book, filename)
+    local secret_key = Config and Config.getAnnasSecretKey()
+    if not secret_key or not book.md5 or not Api then
+        return nil
+    end
+
+    local json = require("json")
+    local detail = "no trusted Anna's Archive mirror is listed"
+
+    for _, domain in ipairs(get_annas_archive_domains()) do
+        if CREDENTIAL_HOSTS[domain] then
+            print("Trying Anna's Archive fast download API on:", domain)
+            local http_result = Api.makeHttpRequest{
+                url = string.format("https://%s/dyn/api/fast_download.json?md5=%s&key=%s",
+                    domain, url_encode(book.md5), url_encode(secret_key)),
+                headers = {
+                    ["Accept"] = "application/json",
+                    ["User-Agent"] = BROWSER_HEADERS["User-Agent"],
+                },
+                redirect = false, -- don't let a redirect carry the key to another host
+                timeout = { 15, 15 },
+            }
+
+            -- API errors (e.g. 401 "Invalid secret key") come back as JSON too.
+            local decoded, response = pcall(json.decode, http_result.body or "")
+            if not decoded or type(response) ~= "table" then
+                response = {}
+            end
+
+            if response.download_url then
+                local status, file_data, dl_reason = check_url(response.download_url)
+                if status == "success" then
+                    local saved, save_err = save_file_bytes(filename, file_data)
+                    if saved then
+                        return filename
+                    end
+                    detail = save_err
+                else
+                    detail = "download URL fetch failed (" .. tostring(dl_reason) .. ")"
+                end
+            elseif response.error then
+                -- Account-level answer; other mirrors would say the same.
+                detail = tostring(response.error)
+                break
+            else
+                detail = http_result.error or "unexpected fast-download API response"
+            end
+        end
+    end
+
+    return nil, detail
+end
+
 function download_book(book, path)
+    local filename = path .. "/" .. sanitize_name(book.title) .. '_'
+        .. sanitize_name(book.author) .. '.' .. book.format
+    local fast_result, fast_detail = fast_download_book(book, filename)
+    if fast_result then
+        return fast_result
+    end
+
+    local function failed(message)
+        if fast_detail then
+            message = message .. " (fast download: " .. fast_detail .. ")"
+        end
+        return "Failed, " .. message
+    end
+
     -- Try different Library Genesis mirrors
     for _, mirror in ipairs(LIBGEN_MIRRORS) do
         ::continue::
 
-        local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
         local lgli_url = "https://" .. mirror .. "/"
         print(book.title)
 
         if not book.download then
             print('no source available')
-            return "Failed, no download source available [lgli, zlib]."
+            return failed("no download source available [lgli, zlib].")
         end
 
         -- Check if book is available on Library Genesis
@@ -1155,7 +1227,7 @@ function download_book(book, path)
             local page_status, page_data = check_url(download_page)
 
             if page_status == "network_error" then
-                return "Failed, please check connection, Network/HTTP error: " .. (page_data or "")
+                return failed("please check connection, Network/HTTP error: " .. (page_data or ""))
             elseif page_status == "success" then
                 print("Download page fetched successfully!")
 
@@ -1191,7 +1263,7 @@ function download_book(book, path)
         ::continue_download::
     end
     
-    return 'Failed, could not fetch download link from source page.'
+    return failed("could not fetch download link from source page.")
 end
 
 -- Main execution block (runs when script is executed directly)
