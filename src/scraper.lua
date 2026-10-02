@@ -910,6 +910,79 @@ local function shuffle(list)
     end
 end
 
+-- Lowercased words of a string. Bytes >= 128 count as word characters so
+-- UTF-8 letters (é, č, ü, ...) stay inside their word; only ASCII letters
+-- are lowercased.
+local function words(str)
+    local list = {}
+    for word in (str or ""):lower():gmatch("[%w\128-\255]+") do
+        table.insert(list, word)
+    end
+    return list
+end
+
+local function relevance_score(book, query_words, query_phrase)
+    local title_words = words(book.title)
+    local title = table.concat(title_words, " ")
+    local author_words = {}
+    for _, word in ipairs(words(book.author)) do
+        author_words[word] = true
+    end
+    local title_set = {}
+    for _, word in ipairs(title_words) do
+        title_set[word] = true
+    end
+
+    local score = 0
+    if title == query_phrase then
+        score = score + 100
+    elseif title:find(query_phrase, 1, true) then
+        score = score + 50
+    end
+
+    local all_in_title = true
+    for _, word in ipairs(query_words) do
+        if title_set[word] then
+            score = score + 10
+        elseif title:find(word, 1, true) then
+            score = score + 4 -- part of a longer word ("marx" in "marxism")
+        else
+            all_in_title = false
+        end
+        if author_words[word] then
+            score = score + 8
+        end
+    end
+    if all_in_title then
+        score = score + 20
+    end
+    return score
+end
+
+-- Sort books by how well their title and author match the query. Ties keep
+-- libgen's original order (table.sort isn't stable, so the original
+-- position is part of the comparison).
+local function sort_by_relevance(books, query)
+    local query_words = words(query)
+    if #query_words == 0 then
+        return
+    end
+    local query_phrase = table.concat(query_words, " ")
+    for i, book in ipairs(books) do
+        book._relevance = relevance_score(book, query_words, query_phrase)
+        book._position = i
+    end
+    table.sort(books, function(a, b)
+        if a._relevance ~= b._relevance then
+            return a._relevance > b._relevance
+        end
+        return a._position < b._position
+    end)
+    for _, book in ipairs(books) do
+        book._relevance, book._position = nil, nil
+    end
+end
+
 local LIBGEN_PAGE_SIZE = 100
 -- when paging through filtered results, stop once this many matches are in
 local LIBGEN_ENOUGH_MATCHES = 100
@@ -995,6 +1068,9 @@ local function libgen_search(query)
         if #books > 0 then
             if order[1] == "random" then
                 shuffle(books)
+            elseif not sort then
+                -- "Most Relevant": libgen has no relevance order of its own
+                sort_by_relevance(books, query)
             end
             return books
         end
