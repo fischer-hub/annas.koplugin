@@ -66,7 +66,6 @@ function Annas:init()
     end
     self.plugin_path, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
 
-    Config.loadCredentialsFromFile(self.plugin_path)
     cleanupLegacyZlibraryFiles(self.plugin_path)
     Config.migrateLegacySettings()
 

@@ -123,12 +123,12 @@ function Ui.showDownloadDirectoryDialog()
     }:chooseDir(current_dir)
 end
 
-function Ui.showGenericInputDialog(title, current_value, is_password, save_callback)
+function Ui.showSecretKeyDialog()
     local dialog
     dialog = InputDialog:new{
-        title = title,
-        input = current_value or "",
-        text_type = is_password and "password" or nil,
+        title = T("Anna's Archive Secret Key"),
+        input = Config.getAnnasSecretKey() or "",
+        text_type = "password",
         buttons = {{
             {
                 text = T("Cancel"),
@@ -138,7 +138,7 @@ function Ui.showGenericInputDialog(title, current_value, is_password, save_callb
             {
                 text = T("Set"),
                 callback = function()
-                    save_callback(dialog:getInputText() or "")
+                    Config.setAnnasSecretKey(dialog:getInputText())
                     _closeAndUntrackDialog(dialog)
                     Ui.showInfoMessage(T("Setting saved successfully!"))
                 end,
@@ -157,8 +157,7 @@ function Ui.showSettingsDialog()
     end
     local foo, _ = util.splitFilePathName(full_source_path):gsub("/+", "/")
     local plugin_path, _ = foo:gsub("/annas/", "")
-    local secret_key = Config.getAnnasSecretKey()
-    local key_status = secret_key and T("configured") or T("not set")
+    local key_status = Config.getAnnasSecretKey() and T("configured") or T("not set")
 
     dialog = ButtonDialog:new{
         title = T("Settings"),
@@ -168,12 +167,7 @@ function Ui.showSettingsDialog()
             text = string.format("%s (%s)", T("Anna's Archive Secret Key"), key_status),
             callback = function()
                 _closeAndUntrackDialog(dialog)
-                Ui.showGenericInputDialog(
-                    T("Anna's Archive Secret Key"),
-                    secret_key or "",
-                    true,
-                    Config.setAnnasSecretKey
-                )
+                Ui.showSecretKeyDialog()
             end,
             }},{{
             text = T("Set Download Directory"),

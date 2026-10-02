@@ -6,18 +6,13 @@ local Config = require("annas.config")
 
 local Api = {}
 
--- Strip credentials from any text (URLs, error and status strings) before it
--- reaches logs or the UI: the configured member key in raw or URL-encoded
--- form, and any ?key= URL parameter whether or not a key is configured.
+-- Removes the member key (raw or URL-encoded) and any ?key= value from log/UI text.
 function Api.redactSecrets(text)
     text = tostring(text)
     local key = Config.getAnnasSecretKey()
-    -- Generic key parameters first so a substituted secret cannot make the
-    -- second pattern consume trailing log text as part of its value.
+    -- key= params first, so the key substitution below can't eat trailing text.
     text = text:gsub("([?&]key=)[^&%s]+", "%1[REDACTED]")
     if key then
-        -- Raw and URL-encoded forms; the key may appear outside key= params
-        -- (e.g. signed CDN paths or POST bodies echoed in error strings).
         text = text:gsub((key:gsub("%W", "%%%1")), "[REDACTED]")
         local encoded = key:gsub("([^%w%-%._~])",
             function(c) return string.format("%%%02X", string.byte(c)) end)
@@ -54,7 +49,6 @@ function Api.makeHttpRequest(options)
         headers = options.headers,
         source = options.source,
         sink = sink_to_use,
-        -- redirect = false keeps headers (e.g. Set-Cookie) and never forwards them to another host.
         redirect = options.redirect ~= false,
     }
 
