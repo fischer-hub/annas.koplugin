@@ -1119,15 +1119,31 @@ end
 
 -- Save binary data to file
 function save_file_bytes(path, bytes)
-    local f, err = io.open(path, "wb")  -- open in binary mode
+    if type(bytes) ~= "string" or bytes == "" then
+        return nil, "no download data received"
+    end
+
+    local temporary_path = path .. ".part"
+    local f, err = io.open(temporary_path, "wb")  -- open in binary mode
     if not f then 
         return nil, "open failed: "..tostring(err) 
     end
 
     local ok, werr = f:write(bytes)
-    f:close()
+    local close_ok, close_err = f:close()
     if not ok then 
+        os.remove(temporary_path)
         return nil, "write failed: "..tostring(werr) 
+    end
+    if not close_ok then
+        os.remove(temporary_path)
+        return nil, "close failed: " .. tostring(close_err)
+    end
+
+    local rename_ok, rename_err = os.rename(temporary_path, path)
+    if not rename_ok then
+        os.remove(temporary_path)
+        return nil, "rename failed: " .. tostring(rename_err)
     end
 
     return true, "saved file to: " .. path
@@ -1135,6 +1151,7 @@ end
 
 -- Download book from Library Genesis mirrors
 function download_book(book, path)
+    local last_error = "could not fetch download link from source page."
     -- Try different Library Genesis mirrors
     for _, mirror in ipairs(LIBGEN_MIRRORS) do
         ::continue::
@@ -1155,7 +1172,8 @@ function download_book(book, path)
             local page_status, page_data = check_url(download_page)
 
             if page_status == "network_error" then
-                return "Failed, please check connection, Network/HTTP error: " .. (page_data or "")
+                last_error = "Network/HTTP error fetching download page on " .. mirror
+                goto continue_download
             elseif page_status == "success" then
                 print("Download page fetched successfully!")
 
@@ -1174,8 +1192,16 @@ function download_book(book, path)
                     local dl_status, dl_data = check_url(download_url)
                     print('status:\n', dl_status)
                     print(filename)
+                    if dl_status ~= "success" or type(dl_data) ~= "string" or dl_data == "" then
+                        last_error = "Network/HTTP error or empty download from " .. mirror
+                        print(last_error)
+                        goto continue_download
+                    end
                     local save_ok, save_msg = save_file_bytes(filename, dl_data)
                     print(save_msg)
+                    if not save_ok then
+                        return "Failed, " .. save_msg
+                    end
                     return filename
 
                 else
@@ -1191,7 +1217,7 @@ function download_book(book, path)
         ::continue_download::
     end
     
-    return 'Failed, could not fetch download link from source page.'
+    return "Failed, " .. last_error
 end
 
 -- Main execution block (runs when script is executed directly)
