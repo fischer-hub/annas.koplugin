@@ -241,6 +241,14 @@ end
 -- default (literally "curl/8.x") or a truncated User-Agent are both common
 -- triggers for a 403 a real browser never sees for the same URL. Every fetch
 -- tier below sends this same realistic, complete header set.
+-- How long a fetch tier waits before giving up. Download pages and Wikipedia
+-- answer within a second or two, so a short timeout makes a dead mirror fail
+-- fast. Search pages are slow on libgen's side (measured 4-15 s, sometimes
+-- more) and get longer, as does the book file itself, which can be large.
+local PAGE_TIMEOUT = 8
+local SEARCH_TIMEOUT = 20
+local FILE_DOWNLOAD_TIMEOUT = 20
+
 local BROWSER_HEADERS = {
     ["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Safari/605.1.15",
     ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -288,7 +296,7 @@ local function best_reason(a, b)
 end
 
 -- Pure Lua HTTP implementation using LuaSocket (fallback method)
-local function fetch_with_lua_socket(url)
+local function fetch_with_lua_socket(url, timeout)
     print('=== Trying pure Lua socket for URL:', url)
     
     local socket_ok, socket = pcall(require, "socket")
@@ -303,7 +311,7 @@ local function fetch_with_lua_socket(url)
     -- Every other fetch tier bounds its request (curl --max-time, wget --timeout,
     -- Api's socketutil timeout); without this, a stalled connection here can hang
     -- far longer than the OS default before falling through to the next tier/mirror.
-    http.TIMEOUT = 20
+    http.TIMEOUT = timeout
 
     local response_body = {}
     local res, code, response_headers, status = http.request{
@@ -328,7 +336,7 @@ local function fetch_with_lua_socket(url)
 end
 
 -- Try external commands (curl/wget) for HTTP requests
-local function fetch_with_external_command(url)
+local function fetch_with_external_command(url, timeout)
     print('=== Trying external command for URL:', url)
 
     local tried_any = false
@@ -339,14 +347,12 @@ local function fetch_with_external_command(url)
         tried_any = true
         print('=== Using curl')
         local http_code_marker = "___CURL_HTTP_CODE___:"
-        print('curl -L -s --compressed --max-time 20 '
+        local curl_cmd = 'curl -L -s --compressed --max-time ' .. timeout .. ' '
             .. curl_header_args(BROWSER_HEADERS) .. ' '
             .. '-w "' .. http_code_marker .. '%{http_code}" '
-            .. shell_quote(url) .. ' 2>&1')
-        local handle = io.popen('curl -L -s --compressed --max-time 20 '
-            .. curl_header_args(BROWSER_HEADERS) .. ' '
-            .. '-w "' .. http_code_marker .. '%{http_code}" '
-            .. shell_quote(url) .. ' 2>&1')
+            .. shell_quote(url) .. ' 2>&1'
+        print(curl_cmd)
+        local handle = io.popen(curl_cmd)
         if handle then
             local raw = handle:read("*a")
             local success = handle:close()
@@ -375,12 +381,18 @@ local function fetch_with_external_command(url)
         tried_any = true
         print('=== Using wget')
         local temp_file = os.tmpname()
-        local cmd = string.format('wget -q -O %s --timeout=10 %s %s 2>&1',
+        -- --tries=1: wget otherwise retries up to 20 times, which can keep a
+        -- dead mirror busy for minutes
+        -- io.popen can't report the exit code in LuaJIT, so echo it
+        local cmd = string.format('wget -q -O %s --timeout=%d --tries=1 %s %s 2>&1; echo "___WGET_EXIT___:$?"',
             shell_quote(temp_file),
+            timeout,
             wget_header_args(BROWSER_HEADERS),
             shell_quote(url))
         local handle = io.popen(cmd)
+        local wget_exit = nil
         if handle then
+            wget_exit = tonumber((handle:read("*a") or ""):match("___WGET_EXIT___:(%d+)"))
             handle:close()
             local f = io.open(temp_file, "r")
             if f then
@@ -393,10 +405,14 @@ local function fetch_with_external_command(url)
                 end
             end
         end
-        -- wget aborts and writes nothing on an HTTP error status by default, so
-        -- reaching here most often means a rejected (blocked) request rather
-        -- than total unreachability.
-        reason = best_reason(reason, "blocked")
+        -- wget exits with 8 when the server answered with an error status
+        -- (rejected/blocked); other codes (4 network failure, 5 TLS, ...)
+        -- mean no proper answer arrived at all.
+        if wget_exit == 8 then
+            reason = best_reason(reason, "blocked")
+        else
+            reason = best_reason(reason, "unreachable")
+        end
     end
 
     if not tried_any then
@@ -407,7 +423,7 @@ local function fetch_with_external_command(url)
 end
 
 -- Try KOReader's API with multiple header configurations
-local function fetch_with_api(url)
+local function fetch_with_api(url, timeout)
     if not Api then
         print('=== Api.makeHttpRequest not available (running outside KOReader)')
         return "api_unavailable", nil, "unavailable"
@@ -439,7 +455,8 @@ local function fetch_with_api(url)
                 url = url,
                 method = "GET",
                 headers = headers,
-                timeout = 10,
+                -- block and total timeout, so the whole attempt is bounded
+                timeout = { timeout, timeout },
             }
         end)
         
@@ -462,7 +479,10 @@ local function fetch_with_api(url)
             if tostring(http_result.error):find("HTTP Error", 1, true) then
                 reason = best_reason(reason, "blocked")
             else
+                -- the connection itself failed; other headers won't help,
+                -- and each extra attempt would cost another full timeout
                 reason = best_reason(reason, "unreachable")
+                break
             end
             goto next_attempt
         end
@@ -483,13 +503,14 @@ local function fetch_with_api(url)
 end
 
 -- Main HTTP request function with three-tier fallback system
-function check_url(url)
-    print('=== DEBUG: check_url called with:', url)
+function check_url(url, timeout)
+    timeout = timeout or PAGE_TIMEOUT
+    print('=== DEBUG: check_url called with:', url, 'timeout:', timeout)
 
     local reason = nil
 
     -- Method 1: Try external commands (curl/wget) - most reliable
-    local ext_status, ext_data, ext_reason = fetch_with_external_command(url)
+    local ext_status, ext_data, ext_reason = fetch_with_external_command(url, timeout)
     if ext_status == "success" then
         return "success", ext_data
     end
@@ -498,7 +519,7 @@ function check_url(url)
     print('=== External command not available, trying alternative methods')
 
     -- Method 2: Try LuaSocket (pure Lua, no external dependencies)
-    local socket_status, socket_data, socket_reason = fetch_with_lua_socket(url)
+    local socket_status, socket_data, socket_reason = fetch_with_lua_socket(url, timeout)
     if socket_status == "success" then
         return "success", socket_data
     end
@@ -507,7 +528,7 @@ function check_url(url)
     print('=== LuaSocket not available or failed, trying Api.makeHttpRequest')
 
     -- Method 3: Try KOReader's API with multiple configurations
-    local api_status, api_data, api_reason = fetch_with_api(url)
+    local api_status, api_data, api_reason = fetch_with_api(url, timeout)
     if api_status == "success" then
         return "success", api_data
     end
@@ -646,7 +667,7 @@ local function annas_search(query)
     print('Protocol:', protocols[protocol_counter + 1], 'Domain:', aa_domains[domain_counter])
 
     total_attempts = total_attempts + 1
-    local status, data, reason = check_url(url)
+    local status, data, reason = check_url(url, SEARCH_TIMEOUT)
 
     if status == "network_error" or status == "dns_error" then
         tally_failure(reason)
@@ -992,7 +1013,7 @@ local LIBGEN_ENOUGH_MATCHES = 100
 local function fetch_libgen_page(mirror, path, page)
     local url = "https://" .. mirror .. path .. (page > 1 and ("&page=" .. page) or "")
     print("=== Trying libgen search:", url)
-    local status, data, fail_reason = check_url(url)
+    local status, data, fail_reason = check_url(url, SEARCH_TIMEOUT)
     if status == "success" and data and data:find("<title>Library Genesis", 1, true) then
         return parse_libgen_results(data)
     end
@@ -1119,22 +1140,49 @@ end
 
 -- Save binary data to file
 function save_file_bytes(path, bytes)
-    local f, err = io.open(path, "wb")  -- open in binary mode
-    if not f then 
-        return nil, "open failed: "..tostring(err) 
+    if type(bytes) ~= "string" or bytes == "" then
+        return nil, "no download data received"
+    end
+
+    -- Write to a temporary file and only move it into place once it's
+    -- complete, so a failed write never leaves a broken book behind.
+    local temporary_path = path .. ".part"
+    local f, err = io.open(temporary_path, "wb")  -- open in binary mode
+    if not f then
+        return nil, "open failed: " .. tostring(err)
     end
 
     local ok, werr = f:write(bytes)
-    f:close()
-    if not ok then 
-        return nil, "write failed: "..tostring(werr) 
+    local close_ok, close_err = f:close()
+    if not ok or not close_ok then
+        os.remove(temporary_path)
+        return nil, "write failed: " .. tostring(werr or close_err)
+    end
+
+    local rename_ok, rename_err = os.rename(temporary_path, path)
+    if not rename_ok then
+        os.remove(temporary_path)
+        return nil, "rename failed: " .. tostring(rename_err)
     end
 
     return true, "saved file to: " .. path
 end
 
+-- libgen's get.php sometimes answers with an HTML error page and a 200
+-- status instead of the file; don't save that as the book.
+local function looks_like_html_page(data, format)
+    if (format or ""):upper():find("HTM", 1, true) then
+        return false
+    end
+    -- libgen's pages start with a UTF-8 byte order mark
+    local head = data:sub(1, 512):gsub("^\239\187\191", ""):lower()
+    return head:find("^%s*<!doctype html") ~= nil or head:find("^%s*<html") ~= nil
+end
+
 -- Download book from Library Genesis mirrors
 function download_book(book, path)
+    -- reported if every mirror fails
+    local last_error = "could not fetch download link from source page."
     -- Try different Library Genesis mirrors
     for _, mirror in ipairs(LIBGEN_MIRRORS) do
         ::continue::
@@ -1155,7 +1203,10 @@ function download_book(book, path)
             local page_status, page_data = check_url(download_page)
 
             if page_status == "network_error" then
-                return "Failed, please check connection, Network/HTTP error: " .. (page_data or "")
+                -- another mirror may still work
+                last_error = "Network/HTTP error fetching the download page on " .. mirror
+                print(last_error)
+                goto continue_download
             elseif page_status == "success" then
                 print("Download page fetched successfully!")
 
@@ -1171,11 +1222,25 @@ function download_book(book, path)
                     print("Found final link:", download_link)
                     local download_url = lgli_url .. download_link
 
-                    local dl_status, dl_data = check_url(download_url)
+                    local dl_status, dl_data = check_url(download_url, FILE_DOWNLOAD_TIMEOUT)
                     print('status:\n', dl_status)
                     print(filename)
+                    if dl_status ~= "success" or type(dl_data) ~= "string" or dl_data == "" then
+                        last_error = "Network/HTTP error or empty download from " .. mirror
+                        print(last_error)
+                        goto continue_download
+                    end
+                    if looks_like_html_page(dl_data, book.format) then
+                        last_error = mirror .. " returned an HTML page instead of the file"
+                        print(last_error)
+                        goto continue_download
+                    end
                     local save_ok, save_msg = save_file_bytes(filename, dl_data)
                     print(save_msg)
+                    if not save_ok then
+                        -- a local write problem; another mirror won't fix that
+                        return "Failed, " .. save_msg
+                    end
                     return filename
 
                 else
@@ -1190,8 +1255,8 @@ function download_book(book, path)
         
         ::continue_download::
     end
-    
-    return 'Failed, could not fetch download link from source page.'
+
+    return "Failed, " .. last_error
 end
 
 -- Main execution block (runs when script is executed directly)
