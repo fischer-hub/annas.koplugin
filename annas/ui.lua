@@ -62,14 +62,24 @@ function Ui.showErrorMessage(text)
     end
 end
 
-function Ui.showLoadingMessage(text)
-    local message = InfoMessage:new{ text = text, timeout = 0 }
+function Ui.showLoadingMessage(text, cancellable)
+    if cancellable then
+        local ProgressbarDialog = require("ui/widget/progressbardialog")
+        local dialog = ProgressbarDialog:new{
+            title = text,
+            subtitle = T("Tap anywhere to cancel."),
+            modal = true,
+        }
+        dialog:show()
+        return dialog
+    end
+    local message = InfoMessage:new{ text = text, dismissable = true }
     UIManager:show(message)
     return message
 end
 
 function Ui.closeMessage(message_widget)
-    if message_widget then
+    if message_widget and not message_widget._annas_closed then
         if type(message_widget.close) == "function" then
             message_widget:close()
             -- Ensure complete screen refresh after closing the progress dialog

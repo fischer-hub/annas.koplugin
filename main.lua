@@ -114,7 +114,7 @@ function Annas:performSearch(query)
         return
     end
 
-    local loading_msg = Ui.showLoadingMessage(T("Searching for \"") .. query .. "\"...")
+    local loading_msg = Ui.showLoadingMessage(T("Searching for \"") .. query .. "\"...", true)
 
     local function task_search()
         return scraper(query)
@@ -144,7 +144,10 @@ function Annas:performSearch(query)
         Ui.showErrorMessage(tostring(err_msg))
     end
 
-    AsyncHelper.run(task_search, on_success_search, on_error_search, loading_msg)
+    AsyncHelper.run(task_search, on_success_search, on_error_search, loading_msg, {
+        timeout_seconds = 90,
+        on_cancel = function() Ui.showSearchDialog(self, query) end,
+    })
 end
 
 function Annas:displaySearchResults(initial_book_data_list, query_string)
@@ -199,7 +202,7 @@ function Annas:downloadBook(book)
     end
 
     local function attemptDownload()
-        local loading_msg = Ui.showLoadingMessage(T("Downloading, please wait …"))
+        local loading_msg = Ui.showLoadingMessage(T("Downloading, please wait …"), true)
 
         local function task_download()
             return download_book(book, target_dir)
@@ -251,14 +254,18 @@ function Annas:downloadBook(book)
             end
 
             Ui.showRetryErrorDialog(err_msg, T("Download"), function()
-                local new_loading_msg = Ui.showLoadingMessage(T("Retrying download..."))
+                local new_loading_msg = Ui.showLoadingMessage(T("Retrying download..."), true)
                 loading_msg = new_loading_msg
-                AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg)
+                AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg, {
+                    timeout_seconds = 300,
+                })
             end, function(final_err_msg)
             end, loading_msg)
         end
 
-        AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg)
+        AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg, {
+            timeout_seconds = 300,
+        })
     end
 
     Ui.confirmDownload(book.title, function()

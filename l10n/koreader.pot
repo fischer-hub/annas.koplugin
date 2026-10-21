@@ -17,6 +17,18 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+msgid "Tap anywhere to cancel."
+msgstr ""
+
+msgid "Operation timed out. Please try again."
+msgstr ""
+
+msgid "Could not start the background task."
+msgstr ""
+
+msgid "The background task ended without a result."
+msgstr ""
+
 #: _meta.lua:4 main.lua:25 main.lua:69
 msgid "Z-library"
 msgstr ""
