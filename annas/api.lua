@@ -38,7 +38,23 @@ function Api.makeHttpRequest(options)
 
     logger.dbg(string.format("Annas:Api.makeHttpRequest - Request Params: URL: %s, Method: %s, Timeout: %s", request_params.url, request_params.method, tostring(options.timeout)))
 
+    local original_open
+    if options.on_headers and type(http.open) == "function" then
+        original_open = http.open
+        http.open = function(...)
+            local connection = original_open(...)
+            local receivebody = connection.receivebody
+            if type(receivebody) == "function" then
+                connection.receivebody = function(current, headers, ...)
+                    pcall(options.on_headers, headers)
+                    return receivebody(current, headers, ...)
+                end
+            end
+            return connection
+        end
+    end
     local req_ok, r_val, r_code, r_headers_tbl, r_status_str = pcall(http.request, request_params)
+    if original_open then http.open = original_open end
 
     if options.timeout then
         socketutil:reset_timeout()

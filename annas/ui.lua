@@ -425,13 +425,14 @@ function Ui.createBookMenuItem(book_data, parent_annas_instance)
 end
 
 function Ui.createSearchResultsMenu(parent_ui_ref, query_string, initial_menu_items)
+    local CoverMenu = require("annas.cover_menu")
     local search_order_name = Config.getSearchOrderName()
-    local menu = Menu:new{
+    local menu = CoverMenu:new{
         title = _colon_concat(T("Search Results"), query_string),
         subtitle = string.format("%s: %s", T("Sort by"), search_order_name),
         item_table = initial_menu_items,
         parent = parent_ui_ref,
-        items_per_page = 10,
+        items_per_page = 6,
         show_captions = true,
         is_popout = false,
         is_borderless = true,

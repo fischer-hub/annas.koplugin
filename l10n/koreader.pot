@@ -852,3 +852,27 @@ msgstr ""
 #: zlibrary/ui.lua:1044
 msgid "Timeout Settings"
 msgstr ""
+
+msgid "Queued"
+msgstr ""
+
+msgid "Finding cover"
+msgstr ""
+
+msgid "Connecting"
+msgstr ""
+
+msgid "Loading"
+msgstr ""
+
+msgid "No cover"
+msgstr ""
+
+msgid "Timed out"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "KB"
+msgstr ""
