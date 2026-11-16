@@ -804,7 +804,7 @@ local function annas_search(query)
 end
 
 -- Library Genesis mirrors, used both to search (libgen_search) and to
--- download (download_book, via each mirror's ads.php page).
+-- download (src/download_job.sh, via each mirror's ads.php page).
 local LIBGEN_MIRRORS = {
     "libgen.gl",
     "libgen.li",
@@ -815,6 +815,11 @@ local LIBGEN_MIRRORS = {
     "libgen.st",
     "libgen.is",
 }
+
+-- Mirror list for the background download job (see src/download_job.sh).
+function libgen_mirror_list()
+    return LIBGEN_MIRRORS
+end
 
 -- libgen has no language or format query parameter (it also ignores
 -- "lang:"/"ext:" terms in the query), so those filters are applied to the
@@ -863,7 +868,7 @@ local function parse_libgen_results(html)
             cells[#cells + 1] = cell
         end
         local format = cells[8] and strip_tags(cells[8])
-        -- download_book needs an md5 and a format (for the file name)
+        -- the download needs an md5 and a format (for the file name)
         if md5 and #md5 == 32 and #cells >= 9 and format then
             -- the first cell also holds the series name and badges; the
             -- title itself is the edition link
@@ -1136,127 +1141,6 @@ function sanitize_name(name)
     sanitized = sanitized:gsub("[^%w._-]", "_")
     sanitized = sanitized:gsub(" ", "_")
     return sanitized
-end
-
--- Save binary data to file
-function save_file_bytes(path, bytes)
-    if type(bytes) ~= "string" or bytes == "" then
-        return nil, "no download data received"
-    end
-
-    -- Write to a temporary file and only move it into place once it's
-    -- complete, so a failed write never leaves a broken book behind.
-    local temporary_path = path .. ".part"
-    local f, err = io.open(temporary_path, "wb")  -- open in binary mode
-    if not f then
-        return nil, "open failed: " .. tostring(err)
-    end
-
-    local ok, werr = f:write(bytes)
-    local close_ok, close_err = f:close()
-    if not ok or not close_ok then
-        os.remove(temporary_path)
-        return nil, "write failed: " .. tostring(werr or close_err)
-    end
-
-    local rename_ok, rename_err = os.rename(temporary_path, path)
-    if not rename_ok then
-        os.remove(temporary_path)
-        return nil, "rename failed: " .. tostring(rename_err)
-    end
-
-    return true, "saved file to: " .. path
-end
-
--- libgen's get.php sometimes answers with an HTML error page and a 200
--- status instead of the file; don't save that as the book.
-local function looks_like_html_page(data, format)
-    if (format or ""):upper():find("HTM", 1, true) then
-        return false
-    end
-    -- libgen's pages start with a UTF-8 byte order mark
-    local head = data:sub(1, 512):gsub("^\239\187\191", ""):lower()
-    return head:find("^%s*<!doctype html") ~= nil or head:find("^%s*<html") ~= nil
-end
-
--- Download book from Library Genesis mirrors
-function download_book(book, path)
-    -- reported if every mirror fails
-    local last_error = "could not fetch download link from source page."
-    -- Try different Library Genesis mirrors
-    for _, mirror in ipairs(LIBGEN_MIRRORS) do
-        ::continue::
-
-        local filename = path .. "/" .. sanitize_name(book.title) .. '_'.. sanitize_name(book.author) .. '.' .. book.format
-        local lgli_url = "https://" .. mirror .. "/"
-        print(book.title)
-
-        if not book.download then
-            print('no source available')
-            return "Failed, no download source available [lgli, zlib]."
-        end
-
-        -- Check if book is available on Library Genesis
-        if string.find(book.download, 'lgli', 1, true) then
-            local download_page = lgli_url .. "ads.php?md5=" .. book.md5
-            print('download page on lgli: ', download_page)
-            local page_status, page_data = check_url(download_page)
-
-            if page_status == "network_error" then
-                -- another mirror may still work
-                last_error = "Network/HTTP error fetching the download page on " .. mirror
-                print(last_error)
-                goto continue_download
-            elseif page_status == "success" then
-                print("Download page fetched successfully!")
-
-                if not page_data then
-                    print("No data received from download page")
-                    goto continue_download
-                end
-
-                -- Extract the actual download link from the page
-                local download_link = page_data:match('href="([^"]*get%.php[^"]*)"')
-
-                if download_link then
-                    print("Found final link:", download_link)
-                    local download_url = lgli_url .. download_link
-
-                    local dl_status, dl_data = check_url(download_url, FILE_DOWNLOAD_TIMEOUT)
-                    print('status:\n', dl_status)
-                    print(filename)
-                    if dl_status ~= "success" or type(dl_data) ~= "string" or dl_data == "" then
-                        last_error = "Network/HTTP error or empty download from " .. mirror
-                        print(last_error)
-                        goto continue_download
-                    end
-                    if looks_like_html_page(dl_data, book.format) then
-                        last_error = mirror .. " returned an HTML page instead of the file"
-                        print(last_error)
-                        goto continue_download
-                    end
-                    local save_ok, save_msg = save_file_bytes(filename, dl_data)
-                    print(save_msg)
-                    if not save_ok then
-                        -- a local write problem; another mirror won't fix that
-                        return "Failed, " .. save_msg
-                    end
-                    return filename
-
-                else
-                    print("No matching link found.")
-                end
-
-            end
-
-        else
-            print('book not available on libgen')
-        end
-        
-        ::continue_download::
-    end
-
-    return "Failed, " .. last_error
 end
 
 -- Main execution block (runs when script is executed directly)

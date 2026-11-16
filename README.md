@@ -26,6 +26,11 @@ The plugin was tested on KOReader installed on a Kindle Paperwhite 11th generati
 5.  Under Search Results click on the entry you are interested in.
 6.  Finally hit `Format: (tap to download)` and confirm again by tapping `Download`.
 
+Downloads run in the background, so you can keep using KOReader while a book downloads.
+A small message in the bottom-right corner shows the progress, and you are asked whether to open the book when it finishes.
+If an `aria2c` binary is installed (for example the one shipped with the Rakuyomi plugin on Kindle, or `/usr/bin/aria2c`), the plugin uses it with 16 connections per file.
+Otherwise it falls back to `curl`.
+
 ## DNS Settings (Advanced)
 <details>
 <summary>Click to reveal</summary>

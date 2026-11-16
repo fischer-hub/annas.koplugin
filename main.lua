@@ -13,6 +13,8 @@ local Config = require("annas.config")
 local Ui = require("annas.ui")
 local ReaderUI = require("apps/reader/readerui")
 local AsyncHelper = require("annas.async_helper")
+local BackgroundDownload = require("annas.background_download")
+local DownloadToast = require("annas.download_toast")
 local logger = require("logger")
 local Ota = require("annas.ota")
 local Device = require("device")
@@ -199,66 +201,59 @@ function Annas:downloadBook(book)
     end
 
     local function attemptDownload()
-        local loading_msg = Ui.showLoadingMessage(T("Downloading, please wait …"))
+        local function on_success_download(saved_path)
+            DownloadToast.show(T("Download finished"), 4)
+            local has_wifi_toggle = Device:hasWifiToggle()
+            local default_turn_off_wifi = Config.getTurnOffWifiAfterDownload()
 
-        local function task_download()
-            return download_book(book, target_dir)
-        end
-
-        local function on_success_download(api_result)
-            Ui.closeMessage(loading_msg)
-            if not string.find(api_result, 'Failed,', 1, true) then
-                local has_wifi_toggle = Device:hasWifiToggle()
-                local default_turn_off_wifi = Config.getTurnOffWifiAfterDownload()
-
-                Ui.confirmOpenBook(api_result, has_wifi_toggle, default_turn_off_wifi, function(should_turn_off_wifi)
-                    if should_turn_off_wifi then
-                        NetworkMgr:disableWifi(function()
-                            logger.info("Annas:downloadBook - Wi-Fi disabled after download as requested by user")
-                        end)
-                    end
-
-                    if ReaderUI then
-                        logger.info("Annas:downloadBook - Cleaning up dialogs before opening reader")
-                        self.dialog_manager:closeAllDialogs()
-                        ReaderUI:showReader(api_result)
-                    else
-                        Ui.showErrorMessage(T("Could not open reader UI."))
-                        logger.warn("Annas:downloadBook - ReaderUI not available.")
-                    end
-                end,
-                function(should_turn_off_wifi)
-                    if should_turn_off_wifi then
-                        NetworkMgr:disableWifi(function()
-                            logger.info("Annas:downloadBook - Wi-Fi disabled after download as requested by user")
-                        end)
-                        logger.info("Annas:downloadBook - Cleaning up dialogs cause wifi is turned off")
-                        self.dialog_manager:closeAllDialogs()
-                    end
+            local function turnOffWifi(should_turn_off_wifi)
+                if should_turn_off_wifi then
+                    NetworkMgr:disableWifi(function()
+                        logger.info("Annas:downloadBook - Wi-Fi disabled after download as requested by user")
+                    end)
                 end
-                )
-            else
-                Ui.showErrorMessage(api_result)
             end
+
+            Ui.confirmOpenBook(saved_path, has_wifi_toggle, default_turn_off_wifi, function(should_turn_off_wifi)
+                turnOffWifi(should_turn_off_wifi)
+                if ReaderUI then
+                    logger.info("Annas:downloadBook - Cleaning up dialogs before opening reader")
+                    self.dialog_manager:closeAllDialogs()
+                    ReaderUI:showReader(saved_path)
+                else
+                    Ui.showErrorMessage(T("Could not open reader UI."))
+                    logger.warn("Annas:downloadBook - ReaderUI not available.")
+                end
+            end,
+            function(should_turn_off_wifi)
+                turnOffWifi(should_turn_off_wifi)
+                if should_turn_off_wifi then
+                    logger.info("Annas:downloadBook - Cleaning up dialogs cause wifi is turned off")
+                    self.dialog_manager:closeAllDialogs()
+                end
+            end)
         end
 
-        local function on_error_download(err_msg)
-            local error_string = tostring(err_msg)
+        local function on_failure_download(message)
+            DownloadToast.close()
+            local error_string = tostring(message)
             if string.find(error_string, "Download limit reached or file is an HTML page", 1, true) then
-                Ui.closeMessage(loading_msg)
                 Ui.showErrorMessage(T("Download limit reached. Please try again later or check your account."))
                 return
             end
-
-            Ui.showRetryErrorDialog(err_msg, T("Download"), function()
-                local new_loading_msg = Ui.showLoadingMessage(T("Retrying download..."))
-                loading_msg = new_loading_msg
-                AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg)
-            end, function(final_err_msg)
-            end, loading_msg)
+            Ui.showRetryErrorDialog(error_string, T("Download"), function()
+                attemptDownload()
+            end, function() end)
         end
 
-        AsyncHelper.run(task_download, on_success_download, on_error_download, loading_msg)
+        DownloadToast.show(T("Downloading in the background …"))
+        BackgroundDownload.start(book, target_dir, function(ok, result)
+            if ok then
+                on_success_download(result)
+            else
+                on_failure_download(result)
+            end
+        end)
     end
 
     Ui.confirmDownload(book.title, function()
