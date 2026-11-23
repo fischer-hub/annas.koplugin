@@ -4,6 +4,7 @@ local Config_ok, Config = pcall(require, "annas.config")
 if not Config_ok then Config = nil end
 local Api_ok, Api = pcall(require, "annas.api")
 if not Api_ok then Api = nil end
+local CoverUtils = require("annas.cover_utils")
 
 -- Cache configuration
 local CACHE_FILE = "annas_domains_cache.txt"
@@ -760,6 +761,8 @@ local function annas_search(query)
             book.description = extract_description(entry)
             book.md5 = md5
             book.link = link
+            book.cover_page = link
+            book.cover_url = CoverUtils.extract_image(entry, annas_url)
             
             local has_lgli = string.find(entry, "lgli", 1, true) ~= nil
             local has_zlib = string.find(entry, "zlib", 1, true) ~= nil
@@ -850,7 +853,7 @@ end
 
 -- A results page is a table with one row per file: title, author,
 -- publisher, year, language, pages, size, extension, mirror links.
-local function parse_libgen_results(html)
+local function parse_libgen_results(html, base_url)
     local books = {}
     local row_count = 0
     for row in html:gmatch("<tr>(.-)</tr>") do
@@ -880,6 +883,10 @@ local function parse_libgen_results(html)
                 format = format:upper(),
                 md5 = md5,
                 download = "lgli",
+                cover_url = CoverUtils.extract_image(row, base_url),
+                cover_page = CoverUtils.absolute_url("/ads.php?md5=" .. md5, base_url),
+                edition_url = CoverUtils.absolute_url(cells[1]:match('href="(edition%.php[^"]+)"'), base_url),
+                annas_page = CoverUtils.extract_anna_page(row, base_url, md5),
             })
         end
     end
@@ -1015,7 +1022,7 @@ local function fetch_libgen_page(mirror, path, page)
     print("=== Trying libgen search:", url)
     local status, data, fail_reason = check_url(url, SEARCH_TIMEOUT)
     if status == "success" and data and data:find("<title>Library Genesis", 1, true) then
-        return parse_libgen_results(data)
+        return parse_libgen_results(data, url)
     end
     -- a "successful" response that isn't a libgen results page is most
     -- likely a block, challenge or error page

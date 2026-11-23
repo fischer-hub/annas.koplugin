@@ -656,3 +656,27 @@ msgstr "Настройки таймаута"
 
 #~ msgid "Downloading..."
 #~ msgstr "Загрузка..."
+
+msgid "Queued"
+msgstr "В очереди"
+
+msgid "Finding cover"
+msgstr "Поиск обложки"
+
+msgid "Connecting"
+msgstr "Соединение"
+
+msgid "Loading"
+msgstr "Загрузка"
+
+msgid "No cover"
+msgstr "Нет обложки"
+
+msgid "Timed out"
+msgstr "Время истекло"
+
+msgid "Stopped"
+msgstr "Остановлено"
+
+msgid "KB"
+msgstr "КБ"
