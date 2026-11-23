@@ -15,6 +15,7 @@ local ReaderUI = require("apps/reader/readerui")
 local AsyncHelper = require("annas.async_helper")
 local logger = require("logger")
 local Ota = require("annas.ota")
+local Trapper = require("ui/trapper")
 local Device = require("device")
 local DialogManager = require("annas.dialog_manager")
 
@@ -114,11 +115,7 @@ function Annas:performSearch(query)
         return
     end
 
-    local loading_msg = Ui.showLoadingMessage(T("Searching for \"") .. query .. "\"...")
-
-    local function task_search()
-        return scraper(query)
-    end
+    local loading_msg = Ui.showCancellableLoadingMessage(T("Searching for \"") .. query .. "\"...")
 
     local function on_success_search(res)
         if type(res) ~= "table" then
@@ -144,7 +141,35 @@ function Annas:performSearch(query)
         Ui.showErrorMessage(tostring(err_msg))
     end
 
-    AsyncHelper.run(task_search, on_success_search, on_error_search, loading_msg)
+    -- scraper() blocks on network I/O, so run it in a subprocess that the user
+    -- can abort with the Cancel button (kills the subprocess).
+    local function task_search()
+        local ok, res = pcall(scraper, query)
+        if ok then
+            return { ok = true, data = res }
+        end
+        return { ok = false, error = tostring(res) }
+    end
+
+    Trapper:wrap(function()
+        local completed, outcome = Trapper:dismissableRunInSubprocess(task_search, loading_msg)
+        UIManager:close(loading_msg)
+        UIManager:setDirty("all", "full")
+
+        if not completed then
+            logger.info("Annas:performSearch - Search cancelled by user")
+            Ui.showInfoMessage(T("Search cancelled."))
+            return
+        end
+
+        if type(outcome) ~= "table" then
+            on_error_search(T("Search failed unexpectedly."))
+        elseif not outcome.ok then
+            on_error_search(outcome.error)
+        else
+            on_success_search(outcome.data)
+        end
+    end)
 end
 
 function Annas:displaySearchResults(initial_book_data_list, query_string)

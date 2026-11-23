@@ -68,6 +68,33 @@ function Ui.showLoadingMessage(text)
     return message
 end
 
+-- Shows a "loading" dialog with a Cancel button. The returned widget is meant to
+-- be handed to Trapper:dismissableRunInSubprocess(), which installs a
+-- `dismiss_callback` on it; tapping Cancel invokes that callback.
+function Ui.showCancellableLoadingMessage(text)
+    local dialog
+    dialog = ButtonDialog:new{
+        title = text,
+        title_align = "center",
+        buttons = {
+            {
+                {
+                    text = T("Cancel"),
+                    callback = function()
+                        if dialog.dismiss_callback then
+                            dialog.dismiss_callback()
+                        end
+                        UIManager:close(dialog)
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(dialog)
+    UIManager:forceRePaint()
+    return dialog
+end
+
 function Ui.closeMessage(message_widget)
     if message_widget then
         if type(message_widget.close) == "function" then
